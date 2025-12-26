@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 import os
+import time
 from dotenv import load_dotenv
 
 import socket
@@ -94,19 +95,57 @@ def upload_reference_pdf():
 pdf_reference = upload_reference_pdf()
 
 # --- QR Code & UI ---
-st.title("透析食スキャナー 🥗")
-st.write("食事の写真をアップロードまたは撮影して、透析患者向けの栄養素（塩分、カリウム、リンなど）を解析します。")
+# Custom CSS for styling
+st.markdown("""
+<style>
+    .reportview-container {
+        background: #f0f2f6;
+    }
+    .main-header {
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        color: #333;
+        text-align: center;
+        padding: 2rem 0;
+    }
+    .stButton>button {
+        width: 100%;
+        background-color: #ff4b4b;
+        color: white;
+        border-radius: 10px;
+        height: 3em;
+        font-weight: bold;
+    }
+    .result-card {
+        background-color: white;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-top: 20px;
+    }
+    .disclaimer {
+        font-size: 0.8em;
+        color: #666;
+        margin-top: 30px;
+        border-top: 1px solid #ddd;
+        padding-top: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h1 class='main-header'>透析食スキャナー 🥗</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>食事の写真を撮るだけで、透析管理に必要な栄養素をAIが瞬時に解析します。</p>", unsafe_allow_html=True)
 
 # Status indicator
 if pdf_reference:
-    st.success("✅ 食品成分表データがロードされました。精度が向上しています。")
+    st.markdown("✅ **食品成分表データロード済み**: 高精度モードで動作中")
 else:
-    st.info("ℹ️ 標準モードで動作中（成分表PDFが見つからないか、ロードできませんでした）。")
+    st.caption("ℹ️ 標準モードで動作中 (成分表PDF未検出)")
 
 # Helper to get local IP and generate QR
 # Only show this in the sidebar to keep main view clean
 with st.sidebar:
-    st.subheader("スマホでアクセス")
+    st.header("設定")
+    st.subheader("スマホで利用")
     try:
         # Get local IP address
         hostname = socket.gethostname()
@@ -131,100 +170,142 @@ with st.sidebar:
         st.write("QRコードの生成に失敗しました")
         
 # Input Method
-input_method = st.radio("入力方法を選択:", ["カメラで撮影", "画像をアップロード"])
+st.write("---")
+input_method = st.radio("入力方法", ["カメラで撮影", "画像をアップロード"], horizontal=True, label_visibility="collapsed")
 
 image = None
 
-if input_method == "カメラで撮影":
-    img_file_buffer = st.camera_input("食事を撮影")
-    if img_file_buffer:
-        try:
-            image = Image.open(img_file_buffer)
-        except Exception as e:
-            st.error(f"画像の読み込みに失敗しました: {e}")
-else:
-    uploaded_file = st.file_uploader("画像を選択", type=["jpg", "jpeg", "png"])
-    if uploaded_file:
-        try:
-            image = Image.open(uploaded_file)
-        except Exception as e:
-            st.error(f"ファイルを開けませんでした。破損しているか、対応していない形式の可能性があります: {e}")
+col1, col2 = st.columns([1, 2])
 
-if image:
-    st.image(image, caption="解析する画像", width='stretch')
-
-    if st.button("栄養解析を開始"):
-        with st.spinner("Geminiが解析中..."):
+with col1:
+    if input_method == "カメラで撮影":
+        img_file_buffer = st.camera_input("食事を撮影")
+        if img_file_buffer:
             try:
-                # Construct Prompt
-                prompt_text = """
-                あなたは透析患者の食事管理を支援する専門の栄養士AIです。
-                渡された食事の画像を解析し、以下の情報を日本語で出力してください。
-
-                【重要：情報ソースの優先順位】
-                1. **添付の「食品成分表」PDF**: 最も優先します。記述があれば必ずこれを使用してください。
-                2. **Web検索 (Google検索)**: コンビニ商品、チェーン店メニュー、特定の製品名などが識別できる場合は、積極的にWeb検索を行い、正確な栄養成分を探してください。
-                3. **推定**: 上記で見つからない場合は、あなたの知識に基づいて推定してください。
-
-                出力フォーマット:
-                ## 料理名: [推定される料理名]
-                (※参照元: 成分表PDF / Web検索 / 推定 のいずれかを記載)
-                
-                ## 推定栄養素 (1食あたり)
-                - **エネルギー**: [数値] kcal
-                - **タンパク質**: [数値] g
-                - **塩分相当量**: [数値] g
-                - **カリウム**: [数値] mg
-                - **リン**: [数値] mg
-                - **水分量**: [数値] ml (推定)
-
-                ## 透析患者へのアドバイス
-                [この食事における注意点や、透析患者が食べる際のアドバイスを簡潔に]
-                """
-                
-                # Prepare content list
-                contents = [prompt_text, image]
-                if pdf_reference:
-                    contents.append(pdf_reference)
-
-                # Prepare the model
-                # Try a list of models in order of preference
-                candidate_models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
-                response = None
-                last_error = None
-
-                for model_name in candidate_models:
-                    try:
-                        st.info(f"モデル `{model_name}` で解析を試みています...")
-                        model = genai.GenerativeModel(model_name)
-                        
-                        # Enable Google Search Grounding
-                        # Note: This might add latency but improves accuracy for commercial items
-                        response = model.generate_content(
-                            contents,
-                            tools='google_search_retrieval'
-                        )
-                        break # Success, exit loop
-                    except Exception as e:
-                        last_error = e
-                        continue
-                
-                if response:
-                    st.success("解析完了！")
-                    st.markdown(response.text)
-                else:
-                    st.error(f"すべてのモデルで解析に失敗しました。")
-                    st.error(f"最後のエラー: {last_error}")
-                    
-                    # Connection check / List models hint
-                    try:
-                        st.write("---")
-                        st.write("利用可能なモデル一覧:")
-                        for m in genai.list_models():
-                            if 'generateContent' in m.supported_generation_methods:
-                                st.write(f"- {m.name}")
-                    except Exception as list_err:
-                        st.write(f"モデル一覧の取得にも失敗しました: {list_err}")
-
+                image = Image.open(img_file_buffer)
             except Exception as e:
-                st.error(f"解析中にエラーが発生しました: {e}")
+                st.error(f"画像の読み込みに失敗しました: {e}")
+    else:
+        uploaded_file = st.file_uploader("画像を選択", type=["jpg", "jpeg", "png"])
+        if uploaded_file:
+            try:
+                image = Image.open(uploaded_file)
+            except Exception as e:
+                st.error(f"ファイルを開けませんでした。破損しているか、対応していない形式の可能性があります: {e}")
+
+with col2:
+    if image:
+        st.image(image, caption="解析対象の画像", width='stretch', use_column_width=True)
+        
+        # st.write("") # Spacer
+        if st.button("栄養解析を開始"):
+            # Use st.status for a better progression UI
+            with st.status("🚀 解析プロセス起動...", expanded=True) as status:
+                try:
+                    # Simulation of scanning
+                    status.write("🔍 画像データをスキャン中...")
+                    progress_bar = status.progress(0)
+                    for i in range(100):
+                        time.sleep(0.01) # fast scan effect
+                        progress_bar.progress(i + 1)
+                    
+                    status.write("🧬 食材と栄養成分を特定中...")
+                    
+                    # Construct Prompt
+                    prompt_text = """
+                    あなたは透析患者の食事管理を支援する専門の栄養士AIです。
+                    渡された食事の画像を解析し、以下の情報を日本語で出力してください。
+
+                    【重要：情報ソースの優先順位】
+                    1. **添付の「食品成分表」PDF**: 最も優先します。記述があれば必ずこれを使用してください。
+                    2. **Web検索 (Google検索)**: コンビニ商品、チェーン店メニュー、特定の製品名などが識別できる場合は、積極的にWeb検索を行い、正確な栄養成分を探してください。
+                    3. **推定**: 上記で見つからない場合は、あなたの知識に基づいて推定してください。
+
+                    出力フォーマット:
+                    ## 料理名: [推定される料理名]
+                    (※参照元: 成分表PDF / Web検索 / 推定 のいずれかを記載)
+                    
+                    ## 推定栄養素 (1食あたり)
+                    - **エネルギー**: [数値] kcal
+                    - **タンパク質**: [数値] g
+                    - **塩分相当量**: [数値] g
+                    - **カリウム**: [数値] mg
+                    - **リン**: [数値] mg
+                    - **水分量**: [数値] ml (推定)
+
+                    ## 透析患者へのアドバイス
+                    [この食事における注意点や、透析患者が食べる際のアドバイスを簡潔に]
+                    """
+                    
+                    # Prepare content list
+                    contents = [prompt_text, image]
+                    if pdf_reference:
+                        contents.append(pdf_reference)
+
+                    # Prepare the model
+                    # Try a list of models in order of preference
+                    candidate_models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+                    response_iterator = None
+                    last_error = None
+
+                    for model_name in candidate_models:
+                        try:
+                            status.write(f"🤖 モデル `{model_name}` に接続中...")
+                            model = genai.GenerativeModel(model_name)
+                            
+                            # Enable Google Search Grounding & Streaming
+                            response_iterator = model.generate_content(
+                                contents,
+                                tools='google_search_retrieval',
+                                stream=True
+                            )
+                            break # Success, exit loop
+                        except Exception as e:
+                            last_error = e
+                            continue
+                    
+                    if response_iterator:
+                        status.update(label="✅ 解析完了！レポートを作成しています...", state="complete", expanded=False)
+                        st.balloons()
+                        
+                        st.markdown('<div class="result-card">', unsafe_allow_html=True)
+                        
+                        # Streaming output logic
+                        full_response = ""
+                        placeholder = st.empty()
+                        
+                        for chunk in response_iterator:
+                            if chunk.text:
+                                full_response += chunk.text
+                                placeholder.markdown(full_response + "▌")
+                        
+                        placeholder.markdown(full_response)
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        
+                    else:
+                        status.update(label="❌ 解析失敗", state="error")
+                        st.error(f"すべてのモデルで解析に失敗しました。")
+                        st.error(f"エラー詳細: {last_error}")
+                        
+                        # Connection check / List models hint
+                        try:
+                            st.write("---")
+                            with st.expander("利用可能なモデル一覧 (デバッグ用)"):
+                                for m in genai.list_models():
+                                    if 'generateContent' in m.supported_generation_methods:
+                                        st.write(f"- {m.name}")
+                        except Exception as list_err:
+                            pass
+
+                except Exception as e:
+                    st.error(f"解析中にエラーが発生しました: {e}")
+
+# Disclaimer
+st.markdown("""
+<div class="disclaimer">
+    <strong>【免責事項】</strong><br>
+    本アプリによる解析結果はAIによる推定値であり、実際の栄養成分と異なる場合があります。<br>
+    あくまで日々の目安としてご利用いただき、厳密な栄養管理については医師や管理栄養士の指導に従ってください。<br>
+    Web検索機能を使用する場合、外部サイトの情報を参照するため、通信環境により時間がかかることがあります。
+</div>
+""", unsafe_allow_html=True)
