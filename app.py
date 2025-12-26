@@ -132,7 +132,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 class='main-header'>透析 栄養管理AIアプリ 🥗</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>透析 栄養管理AIアプリ 🥗Ver1.1</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center;'>食事の写真を撮るorアップロードするだけで、透析管理に必要な栄養素をAIが瞬時に解析します。</p>", unsafe_allow_html=True)
 
 # Status indicator
@@ -251,8 +251,8 @@ with col2:
                     status.write(f"🤖 AIモデル ({model_name}) に接続中...")
                     status.write("🌐 Google検索を有効化...")
                     
-                    # Generate content with Google Search tool using new SDK
-                    response_iterator = client.models.generate_content_stream(
+                    # Generate content with Google Search tool using new SDK (non-streaming for stability)
+                    response = client.models.generate_content(
                         model=model_name,
                         contents=contents,
                         config=types.GenerateContentConfig(
@@ -267,36 +267,36 @@ with col2:
                     status.update(label="❌ エラー発生", state="error", expanded=False)
             
             # Display result OUTSIDE of st.status so it shows immediately
-            if response_iterator:
+            if response:
                 st.balloons()
                 st.markdown('<div class="result-card">', unsafe_allow_html=True)
                 
-                # Streaming output logic - handle new SDK response format
-                full_response = ""
-                placeholder = st.empty()
-                
                 try:
-                    for chunk in response_iterator:
-                        # New SDK uses chunk.text directly or chunk.candidates[0].content.parts[0].text
-                        try:
-                            if hasattr(chunk, 'text') and chunk.text:
-                                full_response += chunk.text
-                            elif hasattr(chunk, 'candidates') and chunk.candidates:
-                                for part in chunk.candidates[0].content.parts:
-                                    if hasattr(part, 'text') and part.text:
-                                        full_response += part.text
-                        except Exception:
-                            pass  # Skip chunks without text
-                        
-                        if full_response:
-                            placeholder.markdown(full_response + "▌")
+                    # Try to get text from response
+                    result_text = None
                     
-                    if full_response:
-                        placeholder.markdown(full_response)
+                    # Method 1: Direct text attribute
+                    if hasattr(response, 'text') and response.text:
+                        result_text = response.text
+                    # Method 2: Access via candidates
+                    elif hasattr(response, 'candidates') and response.candidates:
+                        for candidate in response.candidates:
+                            if hasattr(candidate, 'content') and candidate.content:
+                                for part in candidate.content.parts:
+                                    if hasattr(part, 'text') and part.text:
+                                        result_text = (result_text or "") + part.text
+                    
+                    if result_text:
+                        st.markdown(result_text)
                     else:
-                        st.warning("AIからの応答がありませんでした。再度お試しください。")
-                except Exception as stream_err:
-                    st.error(f"ストリーミング中にエラーが発生しました: {stream_err}")
+                        st.warning("AIからの応答がありませんでした。")
+                        st.write("**デバッグ情報:**")
+                        st.write(f"Response type: {type(response)}")
+                        st.write(f"Response: {response}")
+                        
+                except Exception as display_err:
+                    st.error(f"結果の表示中にエラーが発生しました: {display_err}")
+                    st.write(f"**Response object:** {response}")
                 
                 st.markdown('</div>', unsafe_allow_html=True)
                 
