@@ -271,17 +271,30 @@ with col2:
                 st.balloons()
                 st.markdown('<div class="result-card">', unsafe_allow_html=True)
                 
-                # Streaming output logic
+                # Streaming output logic - handle new SDK response format
                 full_response = ""
                 placeholder = st.empty()
                 
                 try:
                     for chunk in response_iterator:
-                        if chunk.text:
-                            full_response += chunk.text
+                        # New SDK uses chunk.text directly or chunk.candidates[0].content.parts[0].text
+                        try:
+                            if hasattr(chunk, 'text') and chunk.text:
+                                full_response += chunk.text
+                            elif hasattr(chunk, 'candidates') and chunk.candidates:
+                                for part in chunk.candidates[0].content.parts:
+                                    if hasattr(part, 'text') and part.text:
+                                        full_response += part.text
+                        except Exception:
+                            pass  # Skip chunks without text
+                        
+                        if full_response:
                             placeholder.markdown(full_response + "▌")
                     
-                    placeholder.markdown(full_response)
+                    if full_response:
+                        placeholder.markdown(full_response)
+                    else:
+                        st.warning("AIからの応答がありませんでした。再度お試しください。")
                 except Exception as stream_err:
                     st.error(f"ストリーミング中にエラーが発生しました: {stream_err}")
                 
