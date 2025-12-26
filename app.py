@@ -1,5 +1,6 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from PIL import Image
 import os
 import time
@@ -68,9 +69,9 @@ else:
     st.error("APIキーが見つかりません。.envファイルを設定するか、サイドバーに入力してください。")
     st.stop()
 
-# Configure Gemini
+# Configure Gemini Client (new SDK)
 try:
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 except Exception as e:
     st.error(f"APIキーの設定に失敗しました: {e}")
     st.stop()
@@ -81,10 +82,9 @@ def upload_reference_pdf():
     pdf_path = "食品成分表.pdf"
     if os.path.exists(pdf_path):
         try:
-            # Upload the file to Gemini
-            # Note: In a production app with high usage, you might want to manage this separately
-            # to avoid re-uploading frequently if the cache clears.
-            uploaded_file = genai.upload_file(pdf_path, mime_type="application/pdf")
+            # Upload the file to Gemini using new SDK
+            with open(pdf_path, "rb") as f:
+                uploaded_file = client.files.upload(file=f, config={"mime_type": "application/pdf"})
             return uploaded_file
         except Exception as e:
             st.warning(f"参照用PDFのアップロードに失敗しました (推定モードで動作します): {e}")
@@ -132,8 +132,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 class='main-header'>透析食スキャナー 🥗</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>食事の写真を撮るだけで、透析管理に必要な栄養素をAIが瞬時に解析します。</p>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>透析 栄養管理AIアプリ 🥗</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>食事の写真を撮るorアップロードするだけで、透析管理に必要な栄養素をAIが瞬時に解析します。</p>", unsafe_allow_html=True)
 
 # Status indicator
 if pdf_reference:
@@ -199,6 +199,11 @@ with col2:
         
         # st.write("") # Spacer
         if st.button("栄養解析を開始"):
+            # Variables to store result outside status block
+            response_iterator = None
+            last_error = None
+            model_name = 'gemini-2.5-flash'
+            
             # Use st.status for a better progression UI
             with st.status("🚀 解析プロセス起動...", expanded=True) as status:
                 try:
@@ -211,18 +216,19 @@ with col2:
                     
                     status.write("🧬 食材と栄養成分を特定中...")
                     
-                    # Construct Prompt
+                    # Construct Prompt with Web Search instructions
                     prompt_text = """
                     あなたは透析患者の食事管理を支援する専門の栄養士AIです。
                     渡された食事の画像を解析し、以下の情報を日本語で出力してください。
 
-                    【情報ソースの優先順位】
-                    1. **添付の「食品成分表」PDF**: 記述があれば必ずこれを使用してください。
-                    2. **推定**: PDFに該当データがない場合は、あなたの知識に基づいて推定してください。
+                    【重要：情報ソースの優先順位】
+                    1. **添付の「食品成分表」PDF**: 記述があれば最優先で使用してください。
+                    2. **Google検索**: コンビニ商品、チェーン店メニューなど、PDFにない商品は積極的にWeb検索で栄養成分を探してください。
+                    3. **推定**: 上記で見つからない場合は、あなたの知識に基づいて推定してください。
 
                     出力フォーマット:
                     ## 料理名: [推定される料理名]
-                    (※参照元: 成分表PDF / 推定 のいずれかを記載)
+                    (※参照元: 成分表PDF / Web検索 / 推定 のいずれかを記載)
                     
                     ## 推定栄養素 (1食あたり)
                     - **エネルギー**: [数値] kcal
@@ -241,73 +247,57 @@ with col2:
                     if pdf_reference:
                         contents.append(pdf_reference)
 
-                    # Prepare the model
-                    # User requested to stick to gemini-2.5-flash
-                    model_name = 'gemini-2.5-flash'
-                    response_iterator = None
-                    last_error = None
-
-                    try:
-                        status.write(f"🤖 AIモデル ({model_name}) に接続中...")
-                        model = genai.GenerativeModel(model_name)
-                        
-                        # Generate content (PDF reference + AI estimation mode)
-                        # Note: Google Search tool was causing compatibility issues and has been disabled
-                        response_iterator = model.generate_content(
-                            contents,
-                            stream=True
-                        )
-                    except Exception as e:
-                        last_error = e
+                    # Call the model with Google Search enabled
+                    status.write(f"🤖 AIモデル ({model_name}) に接続中...")
+                    status.write("🌐 Google検索を有効化...")
                     
-                    if response_iterator:
-                        status.update(label="✅ 解析完了！レポートを作成しています...", state="complete", expanded=False)
-                        st.balloons()
-                        
-                        st.markdown('<div class="result-card">', unsafe_allow_html=True)
-                        
-                        # Streaming output logic
-                        full_response = ""
-                        placeholder = st.empty()
-                        
-                        try:
-                            for chunk in response_iterator:
-                                if chunk.text:
-                                    full_response += chunk.text
-                                    placeholder.markdown(full_response + "▌")
-                            
-                            placeholder.markdown(full_response)
-                            st.markdown('</div>', unsafe_allow_html=True)
-                        except Exception as stream_err:
-                            st.error(f"ストリーミング中にエラーが発生しました: {stream_err}")
-                        
-                    else:
-                        status.update(label="❌ 解析失敗", state="error")
-                        
-                        # Friendly Error Handling
-                        err_msg = str(last_error)
-                        if "429" in err_msg or "ResourceExhausted" in err_msg:
-                            st.error("⚠️ **利用制限 (Rate Limit) に達しました**")
-                            st.warning("短時間に多くのリクエストを送ったため、一時的に利用が制限されています。1〜2分待ってから再試行してください。")
-                        elif "404" in err_msg or "NotFound" in err_msg:
-                            st.error(f"⚠️ モデル `{model_name}` が見つかりませんでした。")
-                            st.warning("APIキーが正しいか、またはモデル名が変更されていないか確認してください。")
-                        else:
-                            st.error(f"すべてのモデルで解析に失敗しました。")
-                            st.error(f"エラー詳細: {last_error}")
-                        
-                        # Connection check / List models hint
-                        try:
-                            st.write("---")
-                            with st.expander("利用可能なモデル一覧 (デバッグ用)"):
-                                for m in genai.list_models():
-                                    if 'generateContent' in m.supported_generation_methods:
-                                        st.write(f"- {m.name}")
-                        except Exception as list_err:
-                            pass
-
+                    # Generate content with Google Search tool using new SDK
+                    response_iterator = client.models.generate_content_stream(
+                        model=model_name,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            tools=[types.Tool(google_search=types.GoogleSearch())]
+                        )
+                    )
+                    
+                    status.update(label="✅ 解析完了！", state="complete", expanded=False)
+                    
                 except Exception as e:
-                    st.error(f"解析中にエラーが発生しました: {e}")
+                    last_error = e
+                    status.update(label="❌ エラー発生", state="error", expanded=False)
+            
+            # Display result OUTSIDE of st.status so it shows immediately
+            if response_iterator:
+                st.balloons()
+                st.markdown('<div class="result-card">', unsafe_allow_html=True)
+                
+                # Streaming output logic
+                full_response = ""
+                placeholder = st.empty()
+                
+                try:
+                    for chunk in response_iterator:
+                        if chunk.text:
+                            full_response += chunk.text
+                            placeholder.markdown(full_response + "▌")
+                    
+                    placeholder.markdown(full_response)
+                except Exception as stream_err:
+                    st.error(f"ストリーミング中にエラーが発生しました: {stream_err}")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+            elif last_error:
+                st.error("⚠️ 解析に失敗しました")
+                
+                # Friendly Error Handling
+                err_msg = str(last_error)
+                if "429" in err_msg or "ResourceExhausted" in err_msg:
+                    st.warning("短時間に多くのリクエストを送ったため、一時的に利用が制限されています。1〜2分待ってから再試行してください。")
+                elif "404" in err_msg or "NotFound" in err_msg:
+                    st.warning(f"モデル `{model_name}` が見つかりませんでした。APIキーが正しいか確認してください。")
+                else:
+                    st.error(f"エラー詳細: {last_error}")
 
 # Disclaimer
 st.markdown("""
