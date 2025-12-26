@@ -202,7 +202,7 @@ with col2:
             # Variables to store result outside status block
             response_iterator = None
             last_error = None
-            model_name = 'gemini-2.5-flash'
+            model_name = 'gemini-3-flash'
             
             # Use st.status for a better progression UI
             with st.status("🚀 解析プロセス起動...", expanded=True) as status:
