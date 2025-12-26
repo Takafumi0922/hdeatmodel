@@ -216,14 +216,13 @@ with col2:
                     あなたは透析患者の食事管理を支援する専門の栄養士AIです。
                     渡された食事の画像を解析し、以下の情報を日本語で出力してください。
 
-                    【重要：情報ソースの優先順位】
-                    1. **添付の「食品成分表」PDF**: 最も優先します。記述があれば必ずこれを使用してください。
-                    2. **Web検索 (Google検索)**: コンビニ商品、チェーン店メニュー、特定の製品名などが識別できる場合は、積極的にWeb検索を行い、正確な栄養成分を探してください。
-                    3. **推定**: 上記で見つからない場合は、あなたの知識に基づいて推定してください。
+                    【情報ソースの優先順位】
+                    1. **添付の「食品成分表」PDF**: 記述があれば必ずこれを使用してください。
+                    2. **推定**: PDFに該当データがない場合は、あなたの知識に基づいて推定してください。
 
                     出力フォーマット:
                     ## 料理名: [推定される料理名]
-                    (※参照元: 成分表PDF / Web検索 / 推定 のいずれかを記載)
+                    (※参照元: 成分表PDF / 推定 のいずれかを記載)
                     
                     ## 推定栄養素 (1食あたり)
                     - **エネルギー**: [数値] kcal
@@ -252,11 +251,10 @@ with col2:
                         status.write(f"🤖 AIモデル ({model_name}) に接続中...")
                         model = genai.GenerativeModel(model_name)
                         
-                        # Enable Google Search Grounding & Streaming
-                        # Updated based on error message: Passing as object to bypass string validation
+                        # Generate content (PDF reference + AI estimation mode)
+                        # Note: Google Search tool was causing compatibility issues and has been disabled
                         response_iterator = model.generate_content(
                             contents,
-                            tools=[{'google_search': {}}],
                             stream=True
                         )
                     except Exception as e:
@@ -316,7 +314,6 @@ st.markdown("""
 <div class="disclaimer">
     <strong>【免責事項】</strong><br>
     本アプリによる解析結果はAIによる推定値であり、実際の栄養成分と異なる場合があります。<br>
-    あくまで日々の目安としてご利用いただき、厳密な栄養管理については医師や管理栄養士の指導に従ってください。<br>
-    Web検索機能を使用する場合、外部サイトの情報を参照するため、通信環境により時間がかかることがあります。
+    あくまで日々の目安としてご利用いただき、厳密な栄養管理については医師や管理栄養士の指導に従ってください。
 </div>
 """, unsafe_allow_html=True)
