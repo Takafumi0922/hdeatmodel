@@ -243,26 +243,23 @@ with col2:
                         contents.append(pdf_reference)
 
                     # Prepare the model
-                    # Try a list of models in order of preference
-                    candidate_models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+                    # User requested to stick to gemini-2.5-flash
+                    model_name = 'gemini-2.5-flash'
                     response_iterator = None
                     last_error = None
 
-                    for model_name in candidate_models:
-                        try:
-                            status.write(f"🤖 モデル `{model_name}` に接続中...")
-                            model = genai.GenerativeModel(model_name)
-                            
-                            # Enable Google Search Grounding & Streaming
-                            response_iterator = model.generate_content(
-                                contents,
-                                tools='google_search_retrieval',
-                                stream=True
-                            )
-                            break # Success, exit loop
-                        except Exception as e:
-                            last_error = e
-                            continue
+                    try:
+                        status.write(f"🤖 AIモデル ({model_name}) に接続中...")
+                        model = genai.GenerativeModel(model_name)
+                        
+                        # Enable Google Search Grounding & Streaming
+                        response_iterator = model.generate_content(
+                            contents,
+                            tools='google_search_retrieval',
+                            stream=True
+                        )
+                    except Exception as e:
+                        last_error = e
                     
                     if response_iterator:
                         status.update(label="✅ 解析完了！レポートを作成しています...", state="complete", expanded=False)
@@ -274,18 +271,31 @@ with col2:
                         full_response = ""
                         placeholder = st.empty()
                         
-                        for chunk in response_iterator:
-                            if chunk.text:
-                                full_response += chunk.text
-                                placeholder.markdown(full_response + "▌")
-                        
-                        placeholder.markdown(full_response)
-                        st.markdown('</div>', unsafe_allow_html=True)
+                        try:
+                            for chunk in response_iterator:
+                                if chunk.text:
+                                    full_response += chunk.text
+                                    placeholder.markdown(full_response + "▌")
+                            
+                            placeholder.markdown(full_response)
+                            st.markdown('</div>', unsafe_allow_html=True)
+                        except Exception as stream_err:
+                            st.error(f"ストリーミング中にエラーが発生しました: {stream_err}")
                         
                     else:
                         status.update(label="❌ 解析失敗", state="error")
-                        st.error(f"すべてのモデルで解析に失敗しました。")
-                        st.error(f"エラー詳細: {last_error}")
+                        
+                        # Friendly Error Handling
+                        err_msg = str(last_error)
+                        if "429" in err_msg or "ResourceExhausted" in err_msg:
+                            st.error("⚠️ **利用制限 (Rate Limit) に達しました**")
+                            st.warning("短時間に多くのリクエストを送ったため、一時的に利用が制限されています。1〜2分待ってから再試行してください。")
+                        elif "404" in err_msg or "NotFound" in err_msg:
+                            st.error(f"⚠️ モデル `{model_name}` が見つかりませんでした。")
+                            st.warning("APIキーが正しいか、またはモデル名が変更されていないか確認してください。")
+                        else:
+                            st.error(f"すべてのモデルで解析に失敗しました。")
+                            st.error(f"エラー詳細: {last_error}")
                         
                         # Connection check / List models hint
                         try:
