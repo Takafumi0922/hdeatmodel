@@ -138,11 +138,17 @@ image = None
 if input_method == "カメラで撮影":
     img_file_buffer = st.camera_input("食事を撮影")
     if img_file_buffer:
-        image = Image.open(img_file_buffer)
+        try:
+            image = Image.open(img_file_buffer)
+        except Exception as e:
+            st.error(f"画像の読み込みに失敗しました: {e}")
 else:
     uploaded_file = st.file_uploader("画像を選択", type=["jpg", "jpeg", "png"])
     if uploaded_file:
-        image = Image.open(uploaded_file)
+        try:
+            image = Image.open(uploaded_file)
+        except Exception as e:
+            st.error(f"ファイルを開けませんでした。破損しているか、対応していない形式の可能性があります: {e}")
 
 if image:
     st.image(image, caption="解析する画像", width='stretch')
