@@ -253,10 +253,10 @@ with col2:
                         model = genai.GenerativeModel(model_name)
                         
                         # Enable Google Search Grounding & Streaming
-                        # Updated based on error message: 'google_search_retrieval' -> 'google_search'
+                        # Updated based on error message: Passing as object to bypass string validation
                         response_iterator = model.generate_content(
                             contents,
-                            tools='google_search',
+                            tools=[{'google_search': {}}],
                             stream=True
                         )
                     except Exception as e:
