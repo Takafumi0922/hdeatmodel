@@ -161,14 +161,14 @@ if image:
                 あなたは透析患者の食事管理を支援する専門の栄養士AIです。
                 渡された食事の画像を解析し、以下の情報を日本語で出力してください。
 
-                【重要】
-                添付の「食品成分表」PDFを参照できる場合は、まず画像内の料理や食材を特定し、
-                そのPDF内に該当するデータがあれば、**必ずその値を優先して**使用してください。
-                PDF内に該当データがない場合、またはPDFが添付されていない場合は、あなたの知識に基づいて推定してください。
+                【重要：情報ソースの優先順位】
+                1. **添付の「食品成分表」PDF**: 最も優先します。記述があれば必ずこれを使用してください。
+                2. **Web検索 (Google検索)**: コンビニ商品、チェーン店メニュー、特定の製品名などが識別できる場合は、積極的にWeb検索を行い、正確な栄養成分を探してください。
+                3. **推定**: 上記で見つからない場合は、あなたの知識に基づいて推定してください。
 
                 出力フォーマット:
                 ## 料理名: [推定される料理名]
-                (※成分表PDFを使用した場合はその旨を記載してください)
+                (※参照元: 成分表PDF / Web検索 / 推定 のいずれかを記載)
                 
                 ## 推定栄養素 (1食あたり)
                 - **エネルギー**: [数値] kcal
@@ -197,7 +197,13 @@ if image:
                     try:
                         st.info(f"モデル `{model_name}` で解析を試みています...")
                         model = genai.GenerativeModel(model_name)
-                        response = model.generate_content(contents)
+                        
+                        # Enable Google Search Grounding
+                        # Note: This might add latency but improves accuracy for commercial items
+                        response = model.generate_content(
+                            contents,
+                            tools='google_search_retrieval'
+                        )
                         break # Success, exit loop
                     except Exception as e:
                         last_error = e
