@@ -253,9 +253,10 @@ with col2:
                         model = genai.GenerativeModel(model_name)
                         
                         # Enable Google Search Grounding & Streaming
+                        # Updated based on error message: 'google_search_retrieval' -> 'google_search'
                         response_iterator = model.generate_content(
                             contents,
-                            tools='google_search_retrieval',
+                            tools='google_search',
                             stream=True
                         )
                     except Exception as e:
