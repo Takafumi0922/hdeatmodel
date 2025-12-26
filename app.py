@@ -74,9 +74,34 @@ except Exception as e:
     st.error(f"APIキーの設定に失敗しました: {e}")
     st.stop()
 
+# --- PDF Reference ---
+@st.cache_resource
+def upload_reference_pdf():
+    pdf_path = "食品成分表.pdf"
+    if os.path.exists(pdf_path):
+        try:
+            # Upload the file to Gemini
+            # Note: In a production app with high usage, you might want to manage this separately
+            # to avoid re-uploading frequently if the cache clears.
+            uploaded_file = genai.upload_file(pdf_path, mime_type="application/pdf")
+            return uploaded_file
+        except Exception as e:
+            st.warning(f"参照用PDFのアップロードに失敗しました (推定モードで動作します): {e}")
+            return None
+    return None
+
+# Upload PDF once when app starts (cached)
+pdf_reference = upload_reference_pdf()
+
 # --- QR Code & UI ---
 st.title("透析食スキャナー 🥗")
 st.write("食事の写真をアップロードまたは撮影して、透析患者向けの栄養素（塩分、カリウム、リンなど）を解析します。")
+
+# Status indicator
+if pdf_reference:
+    st.success("✅ 食品成分表データがロードされました。精度が向上しています。")
+else:
+    st.info("ℹ️ 標準モードで動作中（成分表PDFが見つからないか、ロードできませんでした）。")
 
 # Helper to get local IP and generate QR
 # Only show this in the sidebar to keep main view clean
@@ -126,13 +151,18 @@ if image:
         with st.spinner("Geminiが解析中..."):
             try:
                 # Construct Prompt
-                prompt = """
+                prompt_text = """
                 あなたは透析患者の食事管理を支援する専門の栄養士AIです。
                 渡された食事の画像を解析し、以下の情報を日本語で出力してください。
-                推定値で構いませんので、透析管理において重要な以下の項目を特に重視してください。
+
+                【重要】
+                添付の「食品成分表」PDFを参照できる場合は、まず画像内の料理や食材を特定し、
+                そのPDF内に該当するデータがあれば、**必ずその値を優先して**使用してください。
+                PDF内に該当データがない場合、またはPDFが添付されていない場合は、あなたの知識に基づいて推定してください。
 
                 出力フォーマット:
                 ## 料理名: [推定される料理名]
+                (※成分表PDFを使用した場合はその旨を記載してください)
                 
                 ## 推定栄養素 (1食あたり)
                 - **エネルギー**: [数値] kcal
@@ -145,6 +175,11 @@ if image:
                 ## 透析患者へのアドバイス
                 [この食事における注意点や、透析患者が食べる際のアドバイスを簡潔に]
                 """
+                
+                # Prepare content list
+                contents = [prompt_text, image]
+                if pdf_reference:
+                    contents.append(pdf_reference)
 
                 # Prepare the model
                 # Try a list of models in order of preference
@@ -156,7 +191,7 @@ if image:
                     try:
                         st.info(f"モデル `{model_name}` で解析を試みています...")
                         model = genai.GenerativeModel(model_name)
-                        response = model.generate_content([prompt, image])
+                        response = model.generate_content(contents)
                         break # Success, exit loop
                     except Exception as e:
                         last_error = e
