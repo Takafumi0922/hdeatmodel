@@ -141,6 +141,78 @@ if pdf_reference:
 else:
     st.caption("ℹ️ 標準モードで動作中 (成分表PDF未検出)")
 
+# --- Nutritional Guidelines Section ---
+st.markdown("---")
+st.markdown("### 📊 透析患者の1日栄養摂取目安")
+
+# Initialize session state for weight
+if 'user_weight' not in st.session_state:
+    st.session_state.user_weight = None
+
+# Display guidelines in a nice format
+col_guide1, col_guide2 = st.columns(2)
+
+with col_guide1:
+    st.markdown("""
+    | 栄養素 | 目安値 |
+    |--------|--------|
+    | **エネルギー** | 30〜35 kcal/kg/日 |
+    | **たんぱく質** | 0.9〜1.2 g/kg/日 |
+    | **食塩** | 6g 未満 |
+    """)
+
+with col_guide2:
+    st.markdown("""
+    | 栄養素 | 目安値 |
+    |--------|--------|
+    | **カリウム** | 2000mg 未満 |
+    | **リン** | たんぱく質(g) × 15 以下 |
+    """)
+
+# Weight calculator
+if st.button("🧮 体重換算で個人目安を計算"):
+    st.session_state.show_weight_form = True
+
+if st.session_state.get('show_weight_form', False):
+    with st.form("weight_form"):
+        st.markdown("#### あなたの体重を入力してください")
+        weight_input = st.number_input("体重 (kg)", min_value=20.0, max_value=200.0, value=60.0, step=0.5)
+        submitted = st.form_submit_button("計算")
+        
+        if submitted:
+            st.session_state.user_weight = weight_input
+            st.session_state.show_weight_form = False
+            st.rerun()
+
+# Display personalized guidelines if weight is set
+if st.session_state.user_weight:
+    weight = st.session_state.user_weight
+    
+    # Calculate personalized values
+    energy_min = weight * 30
+    energy_max = weight * 35
+    protein_min = weight * 0.9
+    protein_max = weight * 1.2
+    phosphorus_max = protein_max * 15
+    
+    st.success(f"👤 **あなたの体重 ({weight}kg) に基づく1日の目安**")
+    
+    st.markdown(f"""
+    | 栄養素 | あなたの目安値 |
+    |--------|---------------|
+    | **エネルギー** | {energy_min:.0f} 〜 {energy_max:.0f} kcal |
+    | **たんぱく質** | {protein_min:.1f} 〜 {protein_max:.1f} g |
+    | **食塩** | 6g 未満 |
+    | **カリウム** | 2000mg 未満 |
+    | **リン** | {phosphorus_max:.0f}mg 以下 |
+    """)
+    
+    if st.button("🔄 体重をリセット"):
+        st.session_state.user_weight = None
+        st.rerun()
+
+st.markdown("---")
+
 # Helper to get local IP and generate QR
 # Only show this in the sidebar to keep main view clean
 with st.sidebar:
