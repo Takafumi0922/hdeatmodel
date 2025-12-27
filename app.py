@@ -124,10 +124,10 @@ def get_or_create_spreadsheet(gc, spreadsheet_name="栄養管理AI"):
         spreadsheet = gc.create(spreadsheet_name)
         # ヘッダー行を追加
         worksheet = spreadsheet.sheet1
-        worksheet.update('A1:I1', [['日付', '時間', 'ユーザー', '料理名', 'エネルギー(kcal)', 'たんぱく質(g)', '塩分(g)', 'カリウム(mg)', 'リン(mg)']])
+        worksheet.update('A1:J1', [['日付', '時間', 'ユーザー', '料理名', 'エネルギー(kcal)', 'たんぱく質(g)', '塩分(g)', 'カリウム(mg)', 'リン(mg)', '解析結果全文']])
     return spreadsheet
 
-def log_to_spreadsheet(gc, nickname, meal_name, nutrition_data):
+def log_to_spreadsheet(gc, nickname, meal_name, nutrition_data, full_text=""):
     """解析結果をスプレッドシートに追記"""
     try:
         spreadsheet = get_or_create_spreadsheet(gc)
@@ -143,7 +143,8 @@ def log_to_spreadsheet(gc, nickname, meal_name, nutrition_data):
             nutrition_data.get('protein', '不明'),
             nutrition_data.get('salt', '不明'),
             nutrition_data.get('potassium', '不明'),
-            nutrition_data.get('phosphorus', '不明')
+            nutrition_data.get('phosphorus', '不明'),
+            full_text
         ]
         worksheet.append_row(row)
         return True
@@ -163,13 +164,13 @@ def parse_nutrition_from_response(response_text):
         nutrition['meal_name'] = '不明'
     
     # 各栄養素を抽出 (数値のみ)
-    # 各栄養素を抽出 (数値のみ)
+    # より柔軟な正規表現に変更
     patterns = {
-        'energy': r'エネルギー[：:]*\s*[\*\*]*\s*([\d,\.～~\-]+)',
-        'protein': r'(?:タンパク質|たんぱく質)[：:]*\s*[\*\*]*\s*([\d,\.～~\-]+)',
-        'salt': r'塩分[相当量]*[：:]*\s*[\*\*]*\s*([\d,\.～~\-]+)',
-        'potassium': r'カリウム[：:]*\s*[\*\*]*\s*([\d,\.～~\-]+)',
-        'phosphorus': r'リン[：:]*\s*[\*\*]*\s*([\d,\.～~\-]+)'
+        'energy': r'エネルギー.*?([\d,\.～~\-]+)',
+        'protein': r'(?:タンパク質|たんぱく質).*?([\d,\.～~\-]+)',
+        'salt': r'塩分.*?([\d,\.～~\-]+)',
+        'potassium': r'カリウム.*?([\d,\.～~\-]+)',
+        'phosphorus': r'リン.*?([\d,\.～~\-]+)'
     }
     
     for key, pattern in patterns.items():
@@ -514,8 +515,13 @@ with col2:
                             nutrition_data = parse_nutrition_from_response(result_text)
                             meal_name = nutrition_data.get('meal_name', '不明')
                             
-                            if log_to_spreadsheet(gc, st.session_state.nickname, meal_name, nutrition_data):
-                                st.success("📊 結果をスプレッドシートに保存しました！")
+                            # Debug: Show parsed data
+                            with st.expander("🔍 解析データデバッグ（開発用）", expanded=False):
+                                st.write("抽出されたデータ:", nutrition_data)
+                                st.write("解析テキスト全文:", result_text)
+                            
+                            if log_to_spreadsheet(gc, st.session_state.nickname, meal_name, nutrition_data, full_text=result_text):
+                                st.success("📊 結果をスプレッドシートに保存しました！（全文も記録しました）")
                             else:
                                 st.info("📊 結果のスプレッドシート保存をスキップしました")
                         elif not st.session_state.nickname:
