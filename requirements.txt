@@ -3,3 +3,5 @@ google-genai
 python-dotenv
 Pillow
 qrcode
+gspread
+streamlit-js-eval

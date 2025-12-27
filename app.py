@@ -4,11 +4,18 @@ from google.genai import types
 from PIL import Image
 import os
 import time
+import re
+import json
+from datetime import datetime
 from dotenv import load_dotenv
 
 import socket
 import qrcode
 from io import BytesIO
+
+# Google Sheets integration
+import gspread
+from streamlit_js_eval import streamlit_js_eval
 
 # Load environment variables
 load_dotenv()
@@ -94,7 +101,84 @@ def upload_reference_pdf():
 # Upload PDF once when app starts (cached)
 pdf_reference = upload_reference_pdf()
 
-# --- QR Code & UI ---
+# --- Google Sheets Integration ---
+def get_gspread_client():
+    """Googleスプレッドシートクライアントを取得"""
+    try:
+        # Streamlit Secretsからサービスアカウント認証情報を取得
+        credentials_dict = st.secrets.get("gcp_service_account", None)
+        if credentials_dict:
+            gc = gspread.service_account_from_dict(dict(credentials_dict))
+            return gc
+    except Exception as e:
+        st.warning(f"スプレッドシート連携が設定されていません: {e}")
+    return None
+
+def get_or_create_spreadsheet(gc, spreadsheet_name="栄養管理AI"):
+    """スプレッドシートを取得または作成"""
+    try:
+        # 既存のスプレッドシートを開く
+        spreadsheet = gc.open(spreadsheet_name)
+    except gspread.SpreadsheetNotFound:
+        # 存在しない場合は作成
+        spreadsheet = gc.create(spreadsheet_name)
+        # ヘッダー行を追加
+        worksheet = spreadsheet.sheet1
+        worksheet.update('A1:I1', [['日付', '時間', 'ユーザー', '料理名', 'エネルギー(kcal)', 'たんぱく質(g)', '塩分(g)', 'カリウム(mg)', 'リン(mg)']])
+    return spreadsheet
+
+def log_to_spreadsheet(gc, nickname, meal_name, nutrition_data):
+    """解析結果をスプレッドシートに追記"""
+    try:
+        spreadsheet = get_or_create_spreadsheet(gc)
+        worksheet = spreadsheet.sheet1
+        
+        now = datetime.now()
+        row = [
+            now.strftime('%Y-%m-%d'),
+            now.strftime('%H:%M:%S'),
+            nickname,
+            meal_name,
+            nutrition_data.get('energy', '不明'),
+            nutrition_data.get('protein', '不明'),
+            nutrition_data.get('salt', '不明'),
+            nutrition_data.get('potassium', '不明'),
+            nutrition_data.get('phosphorus', '不明')
+        ]
+        worksheet.append_row(row)
+        return True
+    except Exception as e:
+        st.warning(f"スプレッドシートへの保存に失敗しました: {e}")
+        return False
+
+def parse_nutrition_from_response(response_text):
+    """AI応答から栄養素を抽出"""
+    nutrition = {}
+    
+    # 料理名を抽出
+    meal_match = re.search(r'料理名[：:]\s*(.+)', response_text)
+    if meal_match:
+        nutrition['meal_name'] = meal_match.group(1).strip()
+    else:
+        nutrition['meal_name'] = '不明'
+    
+    # 各栄養素を抽出 (数値のみ)
+    patterns = {
+        'energy': r'エネルギー[：:]*\s*[\*\*]*\s*([\d,\.]+)',
+        'protein': r'タンパク質|たんぱく質[：:]*\s*[\*\*]*\s*([\d,\.]+)',
+        'salt': r'塩分[相当量]*[：:]*\s*[\*\*]*\s*([\d,\.]+)',
+        'potassium': r'カリウム[：:]*\s*[\*\*]*\s*([\d,\.]+)',
+        'phosphorus': r'リン[：:]*\s*[\*\*]*\s*([\d,\.]+)'
+    }
+    
+    for key, pattern in patterns.items():
+        match = re.search(pattern, response_text, re.IGNORECASE)
+        if match:
+            nutrition[key] = match.group(1).replace(',', '')
+        else:
+            nutrition[key] = '不明'
+    
+    return nutrition
 # Custom CSS for styling
 st.markdown("""
 <style>
@@ -140,6 +224,53 @@ if pdf_reference:
     st.markdown("✅ **食品成分表データロード済み**: 高精度モードで動作中")
 else:
     st.caption("ℹ️ 標準モードで動作中 (成分表PDF未検出)")
+
+# --- Nickname Section (with Local Storage) ---
+st.markdown("---")
+
+# Initialize gspread client
+gc = get_gspread_client()
+if gc:
+    st.markdown("✅ **スプレッドシート連携**: 有効")
+else:
+    st.caption("ℹ️ スプレッドシート連携が未設定です（結果はローカル表示のみ）")
+
+# Load nickname from browser's local storage
+stored_nickname = streamlit_js_eval(js_expressions="localStorage.getItem('dialysis_app_nickname')", key="get_nickname")
+
+# Initialize session state
+if 'nickname' not in st.session_state:
+    st.session_state.nickname = None
+if 'show_nickname_form' not in st.session_state:
+    st.session_state.show_nickname_form = False
+
+# Set nickname from local storage if available
+if stored_nickname and not st.session_state.nickname:
+    st.session_state.nickname = stored_nickname
+
+# Display nickname or input form
+if st.session_state.nickname:
+    col_nick1, col_nick2 = st.columns([3, 1])
+    with col_nick1:
+        st.markdown(f"👋 こんにちは、**{st.session_state.nickname}** さん")
+    with col_nick2:
+        if st.button("名前を変更", key="change_nickname"):
+            st.session_state.show_nickname_form = True
+            st.session_state.nickname = None
+            st.rerun()
+else:
+    st.markdown("### 👤 ニックネームを設定してください")
+    st.caption("解析結果を記録するために使用します（本名でなくてOK）")
+    
+    with st.form("nickname_form"):
+        new_nickname = st.text_input("ニックネーム", placeholder="例: 田中さん")
+        submitted = st.form_submit_button("設定")
+        
+        if submitted and new_nickname:
+            st.session_state.nickname = new_nickname
+            # Save to browser's local storage
+            streamlit_js_eval(js_expressions=f"localStorage.setItem('dialysis_app_nickname', '{new_nickname}')", key="set_nickname")
+            st.rerun()
 
 # --- Nutritional Guidelines Section ---
 st.markdown("---")
@@ -360,6 +491,18 @@ with col2:
                     
                     if result_text:
                         st.markdown(result_text)
+                        
+                        # --- Log to Google Spreadsheet ---
+                        if gc and st.session_state.nickname:
+                            nutrition_data = parse_nutrition_from_response(result_text)
+                            meal_name = nutrition_data.get('meal_name', '不明')
+                            
+                            if log_to_spreadsheet(gc, st.session_state.nickname, meal_name, nutrition_data):
+                                st.success("📊 結果をスプレッドシートに保存しました！")
+                            else:
+                                st.info("📊 結果のスプレッドシート保存をスキップしました")
+                        elif not st.session_state.nickname:
+                            st.info("💡 ニックネームを設定すると、結果がスプレッドシートに保存されます")
                     else:
                         st.warning("AIからの応答がありませんでした。")
                         st.write("**デバッグ情報:**")
