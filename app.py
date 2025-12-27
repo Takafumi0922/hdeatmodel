@@ -165,15 +165,15 @@ def parse_nutrition_from_response(response_text):
     # 各栄養素を抽出 (数値のみ)
     patterns = {
         'energy': r'エネルギー[：:]*\s*[\*\*]*\s*([\d,\.]+)',
-        'protein': r'タンパク質|たんぱく質[：:]*\s*[\*\*]*\s*([\d,\.]+)',
-        'salt': r'塩分[相当量]*[：:]*\s*[\*\*]*\s*([\d,\.]+)',
+        'protein': r'(?:タンパク質|たんぱく質)[：:]*\s*[\*\*]*\s*([\d,\.]+)',
+        'salt': r'塩分[相当量]*[：:]*\s*[\*\*]*\s*([\d,\.～~\-]+)',
         'potassium': r'カリウム[：:]*\s*[\*\*]*\s*([\d,\.]+)',
         'phosphorus': r'リン[：:]*\s*[\*\*]*\s*([\d,\.]+)'
     }
     
     for key, pattern in patterns.items():
         match = re.search(pattern, response_text, re.IGNORECASE)
-        if match:
+        if match and match.group(1):
             nutrition[key] = match.group(1).replace(',', '')
         else:
             nutrition[key] = '不明'
