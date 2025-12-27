@@ -489,6 +489,21 @@ with col2:
                                     if hasattr(part, 'text') and part.text:
                                         result_text = (result_text or "") + part.text
                     
+                    # Method 3: Extract from grounding_metadata (new SDK with Google Search)
+                    if not result_text and hasattr(response, 'candidates') and response.candidates:
+                        candidate = response.candidates[0]
+                        if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
+                            gm = candidate.grounding_metadata
+                            if hasattr(gm, 'grounding_supports') and gm.grounding_supports:
+                                # Collect all text segments
+                                segments = []
+                                for support in gm.grounding_supports:
+                                    if hasattr(support, 'segment') and support.segment:
+                                        if hasattr(support.segment, 'text') and support.segment.text:
+                                            segments.append(support.segment.text)
+                                if segments:
+                                    result_text = "\n".join(segments)
+                    
                     if result_text:
                         st.markdown(result_text)
                         
