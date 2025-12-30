@@ -465,7 +465,7 @@ with col2:
             # Variables to store result outside status block
             response = None
             last_error = None
-            model_name = 'gemini-2.5-flash'  # gemini-3-flash doesn't exist yet
+            model_name = 'gemini-3-flash'  # gemini-3-flash doesn't exist yet
             
             # Use st.status for a better progression UI
             with st.status("🚀 解析プロセス起動...", expanded=True) as status:
@@ -631,3 +631,4 @@ st.markdown("""
     あくまで日々の目安としてご利用いただき、厳密な栄養管理については医師や管理栄養士の指導に従ってください。
 </div>
 """, unsafe_allow_html=True)
+
