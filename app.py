@@ -21,7 +21,7 @@ import requests
 import base64
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Page Config
 # --- Password Protection ---
