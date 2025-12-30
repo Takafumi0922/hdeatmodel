@@ -5,3 +5,5 @@ Pillow
 qrcode
 gspread
 streamlit-js-eval
+google-api-python-client
+google-auth

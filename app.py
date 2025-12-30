@@ -17,6 +17,11 @@ from io import BytesIO
 import gspread
 from streamlit_js_eval import streamlit_js_eval
 
+# Google Drive integration
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+from google.oauth2 import service_account
+
 # Load environment variables
 load_dotenv()
 
@@ -124,21 +129,92 @@ def get_or_create_spreadsheet(gc, spreadsheet_name="栄養管理AI"):
         spreadsheet = gc.create(spreadsheet_name)
         # ヘッダー行を追加
         worksheet = spreadsheet.sheet1
-        worksheet.update('A1:J1', [['日付', '時間', 'ユーザー', '料理名', 'エネルギー(kcal)', 'たんぱく質(g)', '塩分(g)', 'カリウム(mg)', 'リン(mg)', '解析結果全文']])
+        worksheet.update('A1:K1', [['日付', '時間', 'ユーザー', '料理名', '食事写真', 'エネルギー(kcal)', 'たんぱく質(g)', '塩分(g)', 'カリウム(mg)', 'リン(mg)', '解析結果全文']])
     return spreadsheet
 
-def log_to_spreadsheet(gc, nickname, meal_name, nutrition_data, full_text=""):
+# --- Google Drive Integration ---
+def get_drive_service():
+    """Google Driveサービスを取得"""
+    try:
+        credentials_dict = st.secrets.get("gcp_service_account", None)
+        if credentials_dict:
+            creds = service_account.Credentials.from_service_account_info(
+                dict(credentials_dict),
+                scopes=['https://www.googleapis.com/auth/drive.file']
+            )
+            service = build('drive', 'v3', credentials=creds)
+            return service
+    except Exception as e:
+        st.warning(f"Google Drive連携に失敗しました: {e}")
+    return None
+
+def find_folder_by_name(service, folder_name="食事写真"):
+    """フォルダIDを名前で検索"""
+    try:
+        query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        results = service.files().list(q=query, fields="files(id, name)").execute()
+        files = results.get('files', [])
+        if files:
+            return files[0]['id']
+    except Exception as e:
+        st.warning(f"フォルダ検索に失敗: {e}")
+    return None
+
+def upload_image_to_drive(service, image, folder_id, filename):
+    """画像をGoogle Driveにアップロードして公開リンクを返す"""
+    try:
+        # 画像をバイト列に変換
+        img_byte_arr = BytesIO()
+        image.save(img_byte_arr, format='JPEG', quality=85)
+        img_byte_arr.seek(0)
+        
+        # ファイルメタデータ
+        file_metadata = {
+            'name': filename,
+            'parents': [folder_id] if folder_id else []
+        }
+        
+        # アップロード
+        media = MediaIoBaseUpload(img_byte_arr, mimetype='image/jpeg')
+        file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id'
+        ).execute()
+        
+        file_id = file.get('id')
+        
+        # リンクを知っている人全員に公開設定
+        service.permissions().create(
+            fileId=file_id,
+            body={'type': 'anyone', 'role': 'reader'}
+        ).execute()
+        
+        # IMAGE関数で使える直接リンクを返す
+        direct_link = f"https://drive.google.com/uc?id={file_id}"
+        return direct_link
+        
+    except Exception as e:
+        st.warning(f"画像アップロードに失敗: {e}")
+        return None
+
+def log_to_spreadsheet(gc, nickname, meal_name, nutrition_data, full_text="", image_url=""):
     """解析結果をスプレッドシートに追記"""
     try:
         spreadsheet = get_or_create_spreadsheet(gc)
         worksheet = spreadsheet.sheet1
         
         now = datetime.now()
+        
+        # 画像URLがある場合はIMAGE関数として設定
+        image_formula = f'=IMAGE("{image_url}")' if image_url else ""
+        
         row = [
             now.strftime('%Y-%m-%d'),
             now.strftime('%H:%M:%S'),
             nickname,
             meal_name,
+            image_formula,
             nutrition_data.get('energy', '不明'),
             nutrition_data.get('protein', '不明'),
             nutrition_data.get('salt', '不明'),
@@ -146,7 +222,10 @@ def log_to_spreadsheet(gc, nickname, meal_name, nutrition_data, full_text=""):
             nutrition_data.get('phosphorus', '不明'),
             full_text
         ]
-        worksheet.append_row(row)
+        
+        # append_rowはデフォルトで数式を文字列として扱うので、
+        # value_input_option='USER_ENTERED'を指定して数式として認識させる
+        worksheet.append_row(row, value_input_option='USER_ENTERED')
         return True
     except Exception as e:
         st.warning(f"スプレッドシートへの保存に失敗しました: {e}")
@@ -520,7 +599,26 @@ with col2:
                                 st.write("抽出されたデータ:", nutrition_data)
                                 st.write("解析テキスト全文:", result_text)
                             
-                            if log_to_spreadsheet(gc, st.session_state.nickname, meal_name, nutrition_data, full_text=result_text):
+                            # --- 画像をGoogle Driveにアップロード ---
+                            image_url = ""
+                            drive_service = get_drive_service()
+                            if drive_service:
+                                folder_id = find_folder_by_name(drive_service, "食事写真")
+                                if folder_id:
+                                    # ファイル名を生成（日時 + ユーザー名 + 料理名）
+                                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                    safe_meal_name = re.sub(r'[\\/*?:"<>|]', '', meal_name)[:20]  # ファイル名に使えない文字を除去
+                                    filename = f"{timestamp}_{st.session_state.nickname}_{safe_meal_name}.jpg"
+                                    
+                                    with st.spinner("📸 画像をGoogle Driveにアップロード中..."):
+                                        image_url = upload_image_to_drive(drive_service, image, folder_id, filename)
+                                    
+                                    if image_url:
+                                        st.success("📸 食事写真をGoogle Driveに保存しました！")
+                                else:
+                                    st.warning("⚠️ 「食事写真」フォルダが見つかりませんでした。サービスアカウントにフォルダを共有してください。")
+                            
+                            if log_to_spreadsheet(gc, st.session_state.nickname, meal_name, nutrition_data, full_text=result_text, image_url=image_url):
                                 st.success("📊 結果をスプレッドシートに保存しました！（全文も記録しました）")
                             else:
                                 st.info("📊 結果のスプレッドシート保存をスキップしました")
