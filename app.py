@@ -15,7 +15,6 @@ from io import BytesIO
 
 # Google Sheets integration
 import gspread
-from streamlit_js_eval import streamlit_js_eval
 
 import requests
 import base64
@@ -294,16 +293,18 @@ if gc:
 else:
     st.caption("ℹ️ スプレッドシート連携が未設定です（結果はローカル表示のみ）")
 
-# Load nickname from browser's local storage
-stored_nickname = streamlit_js_eval(js_expressions="localStorage.getItem('dialysis_app_nickname')", key="get_nickname")
+# --- Nickname Section (URLパラメータ方式) ---
+# URLから nickname パラメータを取得
+query_params = st.query_params
+url_nickname = query_params.get("nickname", None)
 
 # Initialize session state
 if 'nickname' not in st.session_state:
     st.session_state.nickname = None
 
-# Set nickname from local storage if available (自動適用)
-if stored_nickname and not st.session_state.nickname:
-    st.session_state.nickname = stored_nickname
+# URLパラメータからニックネームを設定
+if url_nickname and not st.session_state.nickname:
+    st.session_state.nickname = url_nickname
 
 # Display nickname or input form
 if st.session_state.nickname:
@@ -313,10 +314,13 @@ if st.session_state.nickname:
     with col_nick2:
         if st.button("名前を変更", key="change_nickname"):
             st.session_state.nickname = None
+            # URLパラメータをクリア
+            st.query_params.clear()
             st.rerun()
 else:
     st.markdown("### 👤 ニックネームを設定してください")
     st.caption("解析結果を記録するために使用します（本名でなくてOK）")
+    st.caption("💡 設定後、表示されるURLをブックマークすると次回から自動ログインできます")
     
     with st.form("nickname_form"):
         new_nickname = st.text_input("ニックネーム", placeholder="例: 田中さん")
@@ -324,8 +328,8 @@ else:
         
         if submitted and new_nickname:
             st.session_state.nickname = new_nickname
-            # Save to browser's local storage
-            streamlit_js_eval(js_expressions=f"localStorage.setItem('dialysis_app_nickname', '{new_nickname}')", key="set_nickname")
+            # URLパラメータに追加（これでURLが更新される）
+            st.query_params["nickname"] = new_nickname
             st.rerun()
 
 # --- Nutritional Guidelines Section ---
