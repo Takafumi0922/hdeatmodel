@@ -567,9 +567,11 @@ with col2:
                     elif hasattr(response, 'candidates') and response.candidates:
                         for candidate in response.candidates:
                             if hasattr(candidate, 'content') and candidate.content:
-                                for part in candidate.content.parts:
-                                    if hasattr(part, 'text') and part.text:
-                                        result_text = (result_text or "") + part.text
+                                # partsがNoneでないことを確認
+                                if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                                    for part in candidate.content.parts:
+                                        if hasattr(part, 'text') and part.text:
+                                            result_text = (result_text or "") + part.text
                     
                     # Method 3: Extract from grounding_metadata (new SDK with Google Search)
                     if not result_text and hasattr(response, 'candidates') and response.candidates:
