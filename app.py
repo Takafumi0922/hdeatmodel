@@ -17,10 +17,8 @@ from io import BytesIO
 import gspread
 from streamlit_js_eval import streamlit_js_eval
 
-# Google Drive integration
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-from google.oauth2 import service_account
+import requests
+import base64
 
 # Load environment variables
 load_dotenv()
@@ -132,73 +130,42 @@ def get_or_create_spreadsheet(gc, spreadsheet_name="栄養管理AI"):
         worksheet.update('A1:K1', [['日付', '時間', 'ユーザー', '料理名', '食事写真', 'エネルギー(kcal)', 'たんぱく質(g)', '塩分(g)', 'カリウム(mg)', 'リン(mg)', '解析結果全文']])
     return spreadsheet
 
-# --- Google Drive Integration ---
-def get_drive_service():
-    """Google Driveサービスを取得"""
-    try:
-        credentials_dict = st.secrets.get("gcp_service_account", None)
-        if credentials_dict:
-            creds = service_account.Credentials.from_service_account_info(
-                dict(credentials_dict),
-                scopes=['https://www.googleapis.com/auth/drive']
-            )
-            service = build('drive', 'v3', credentials=creds)
-            return service
-    except Exception as e:
-        st.warning(f"Google Drive連携に失敗しました: {e}")
-    return None
+# --- Google Drive Integration via GAS ---
+def upload_image_to_gas(image, filename):
+    """画像をGAS経由でGoogle Driveにアップロード"""
+    gas_url = st.secrets.get("GAS_SCRIPT_URL", os.getenv("GAS_SCRIPT_URL"))
+    
+    if not gas_url:
+        st.warning("⚠️ GAS_SCRIPT_URLが設定されていません。.envまたはsecrets.tomlを確認してください。")
+        return None
 
-def find_folder_by_name(service, folder_name="食事写真"):
-    """フォルダIDを名前で検索"""
     try:
-        query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        results = service.files().list(q=query, fields="files(id, name)").execute()
-        files = results.get('files', [])
-        if files:
-            return files[0]['id']
-    except Exception as e:
-        st.warning(f"フォルダ検索に失敗: {e}")
-    return None
-
-def upload_image_to_drive(service, image, folder_id, filename):
-    """画像をGoogle Driveにアップロードして公開リンクを返す"""
-    try:
-        # 画像をバイト列に変換
+        # 画像をBase64文字列に変換
         img_byte_arr = BytesIO()
         image.save(img_byte_arr, format='JPEG', quality=85)
-        img_byte_arr.seek(0)
+        img_base64 = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
         
-        # ファイルメタデータ（必ず親フォルダを指定）
-        file_metadata = {
-            'name': filename,
-            'parents': [folder_id]
+        payload = {
+            'filename': filename,
+            'image_data': img_base64,
+            'folder_name': '食事写真' # GAS側でこのフォルダを探します
         }
         
-        # アップロード（supportsAllDrivesで共有ドライブ対応）
-        media = MediaIoBaseUpload(img_byte_arr, mimetype='image/jpeg')
-        file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
+        response = requests.post(gas_url, json=payload)
         
-        file_id = file.get('id')
-        
-        # リンクを知っている人全員に公開設定
-        service.permissions().create(
-            fileId=file_id,
-            body={'type': 'anyone', 'role': 'reader'},
-            supportsAllDrives=True
-        ).execute()
-        
-        # IMAGE関数で使える直接リンクを返す
-        direct_link = f"https://drive.google.com/uc?id={file_id}"
-        return direct_link
-        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('status') == 'success':
+                return result.get('url')
+            else:
+                st.warning(f"GASエラー: {result.get('message')}")
+        else:
+            st.warning(f"GAS通信エラー: {response.status_code}")
+            
     except Exception as e:
-        st.warning(f"画像アップロードに失敗: {e}")
-        return None
+        st.warning(f"画像アップロード処理でエラー: {e}")
+    
+    return None
 
 def log_to_spreadsheet(gc, nickname, meal_name, nutrition_data, full_text="", image_url=""):
     """解析結果をスプレッドシートに追記"""
@@ -603,24 +570,19 @@ with col2:
                                 st.write("抽出されたデータ:", nutrition_data)
                                 st.write("解析テキスト全文:", result_text)
                             
-                            # --- 画像をGoogle Driveにアップロード ---
+                            # --- 画像をGoogle Driveにアップロード (GAS経由) ---
                             image_url = ""
-                            drive_service = get_drive_service()
-                            if drive_service:
-                                folder_id = find_folder_by_name(drive_service, "食事写真")
-                                if folder_id:
-                                    # ファイル名を生成（日時 + ユーザー名 + 料理名）
-                                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                                    safe_meal_name = re.sub(r'[\\/*?:"<>|]', '', meal_name)[:20]  # ファイル名に使えない文字を除去
-                                    filename = f"{timestamp}_{st.session_state.nickname}_{safe_meal_name}.jpg"
-                                    
-                                    with st.spinner("📸 画像をGoogle Driveにアップロード中..."):
-                                        image_url = upload_image_to_drive(drive_service, image, folder_id, filename)
-                                    
-                                    if image_url:
-                                        st.success("📸 食事写真をGoogle Driveに保存しました！")
-                                else:
-                                    st.warning("⚠️ 「食事写真」フォルダが見つかりませんでした。サービスアカウントにフォルダを共有してください。")
+                            
+                            # ファイル名を生成（日時 + ユーザー名 + 料理名）
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            safe_meal_name = re.sub(r'[\\/*?:"<>|]', '', meal_name)[:20]
+                            filename = f"{timestamp}_{st.session_state.nickname}_{safe_meal_name}.jpg"
+                            
+                            with st.spinner("📸 画像をGoogle Driveに保存中..."):
+                                image_url = upload_image_to_gas(image, filename)
+                            
+                            if image_url:
+                                st.success("📸 食事写真をGoogle Driveに保存しました！")
                             
                             if log_to_spreadsheet(gc, st.session_state.nickname, meal_name, nutrition_data, full_text=result_text, image_url=image_url):
                                 st.success("📊 結果をスプレッドシートに保存しました！（全文も記録しました）")
