@@ -23,6 +23,9 @@ import base64
 # Load environment variables
 load_dotenv(override=True)
 
+# Google Drive Integration via GAS (Secrets or Env)
+gas_url = st.secrets.get("GAS_SCRIPT_URL", os.getenv("GAS_SCRIPT_URL"))
+
 # Page Config
 # --- Password Protection ---
 # Simple password check
