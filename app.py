@@ -300,13 +300,15 @@ stored_nickname = streamlit_js_eval(js_expressions="localStorage.getItem('dialys
 # Initialize session state
 if 'nickname' not in st.session_state:
     st.session_state.nickname = None
-if 'show_nickname_form' not in st.session_state:
-    st.session_state.show_nickname_form = False
+if 'nickname_loaded' not in st.session_state:
+    st.session_state.nickname_loaded = False
 
 # Set nickname from local storage if available
-if stored_nickname and not st.session_state.nickname:
-    st.session_state.nickname = stored_nickname
-    st.rerun()
+if stored_nickname is not None:
+    # ローカルストレージからの読み込み完了
+    st.session_state.nickname_loaded = True
+    if stored_nickname and not st.session_state.nickname:
+        st.session_state.nickname = stored_nickname
 
 # Display nickname or input form
 if st.session_state.nickname:
@@ -315,10 +317,11 @@ if st.session_state.nickname:
         st.markdown(f"👋 こんにちは、**{st.session_state.nickname}** さん")
     with col_nick2:
         if st.button("名前を変更", key="change_nickname"):
-            st.session_state.show_nickname_form = True
             st.session_state.nickname = None
+            st.session_state.nickname_loaded = True  # 読み込み済みとしてマーク
             st.rerun()
-else:
+elif st.session_state.nickname_loaded:
+    # 読み込み完了後、ニックネームがない場合のみフォーム表示
     st.markdown("### 👤 ニックネームを設定してください")
     st.caption("解析結果を記録するために使用します（本名でなくてOK）")
     
@@ -331,6 +334,9 @@ else:
             # Save to browser's local storage
             streamlit_js_eval(js_expressions=f"localStorage.setItem('dialysis_app_nickname', '{new_nickname}')", key="set_nickname")
             st.rerun()
+else:
+    # 読み込み中
+    st.info("🔄 ユーザー情報を読み込み中...")
 
 # --- Nutritional Guidelines Section ---
 st.markdown("---")
