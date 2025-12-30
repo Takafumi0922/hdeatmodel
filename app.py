@@ -24,7 +24,8 @@ import base64
 load_dotenv(override=True)
 
 # Google Drive Integration via GAS (Secrets or Env)
-gas_url = st.secrets.get("GAS_SCRIPT_URL", os.getenv("GAS_SCRIPT_URL"))
+default_gas_url = "https://script.google.com/macros/s/AKfycbxA4FyvHrRwGS9zK6-0PQn4CpGVaJ4vdmXAtttt2jsq9gJG18UBE0MG_j4YM_c6GzdiUw/exec"
+gas_url = st.secrets.get("GAS_SCRIPT_URL", os.getenv("GAS_SCRIPT_URL", default_gas_url))
 
 # Page Config
 # --- Password Protection ---
@@ -136,10 +137,12 @@ def get_or_create_spreadsheet(gc, spreadsheet_name="栄養管理AI"):
 # --- Google Drive Integration via GAS ---
 def upload_image_to_gas(image, filename):
     """画像をGAS経由でGoogle Driveにアップロード"""
-    gas_url = st.secrets.get("GAS_SCRIPT_URL", os.getenv("GAS_SCRIPT_URL"))
+    # 環境変数またはSecretsから取得（取得できない場合はハードコードされた値を使用）
+    default_gas_url = "https://script.google.com/macros/s/AKfycbxA4FyvHrRwGS9zK6-0PQn4CpGVaJ4vdmXAtttt2jsq9gJG18UBE0MG_j4YM_c6GzdiUw/exec"
+    gas_url = st.secrets.get("GAS_SCRIPT_URL", os.getenv("GAS_SCRIPT_URL", default_gas_url))
     
     if not gas_url:
-        st.warning("⚠️ GAS_SCRIPT_URLが設定されていません。.envまたはsecrets.tomlを確認してください。")
+        st.warning("⚠️ GAS_SCRIPT_URLが設定されていません。")
         return None
 
     try:
