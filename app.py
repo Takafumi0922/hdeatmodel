@@ -140,7 +140,7 @@ def get_drive_service():
         if credentials_dict:
             creds = service_account.Credentials.from_service_account_info(
                 dict(credentials_dict),
-                scopes=['https://www.googleapis.com/auth/drive.file']
+                scopes=['https://www.googleapis.com/auth/drive']
             )
             service = build('drive', 'v3', credentials=creds)
             return service
