@@ -306,6 +306,7 @@ if 'show_nickname_form' not in st.session_state:
 # Set nickname from local storage if available
 if stored_nickname and not st.session_state.nickname:
     st.session_state.nickname = stored_nickname
+    st.rerun()
 
 # Display nickname or input form
 if st.session_state.nickname:
