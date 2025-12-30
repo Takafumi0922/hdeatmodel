@@ -168,18 +168,19 @@ def upload_image_to_drive(service, image, folder_id, filename):
         image.save(img_byte_arr, format='JPEG', quality=85)
         img_byte_arr.seek(0)
         
-        # ファイルメタデータ
+        # ファイルメタデータ（必ず親フォルダを指定）
         file_metadata = {
             'name': filename,
-            'parents': [folder_id] if folder_id else []
+            'parents': [folder_id]
         }
         
-        # アップロード
+        # アップロード（supportsAllDrivesで共有ドライブ対応）
         media = MediaIoBaseUpload(img_byte_arr, mimetype='image/jpeg')
         file = service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id'
+            fields='id',
+            supportsAllDrives=True
         ).execute()
         
         file_id = file.get('id')
@@ -187,7 +188,8 @@ def upload_image_to_drive(service, image, folder_id, filename):
         # リンクを知っている人全員に公開設定
         service.permissions().create(
             fileId=file_id,
-            body={'type': 'anyone', 'role': 'reader'}
+            body={'type': 'anyone', 'role': 'reader'},
+            supportsAllDrives=True
         ).execute()
         
         # IMAGE関数で使える直接リンクを返す
