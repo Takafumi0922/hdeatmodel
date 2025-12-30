@@ -6,7 +6,7 @@ import os
 import time
 import re
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 import socket
@@ -179,7 +179,9 @@ def log_to_spreadsheet(gc, nickname, meal_name, nutrition_data, full_text="", im
         spreadsheet = get_or_create_spreadsheet(gc)
         worksheet = spreadsheet.sheet1
         
-        now = datetime.now()
+        # 日本時間 (JST) を取得
+        JST = timezone(timedelta(hours=9), 'JST')
+        now = datetime.now(JST)
         
         # 画像URLがある場合はIMAGE関数として設定
         image_formula = f'=IMAGE("{image_url}")' if image_url else ""
