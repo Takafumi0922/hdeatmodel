@@ -508,6 +508,9 @@ with st.sidebar:
                     st.rerun()
                 else:
                     st.error("❌ パスワードが違います")
+                    # デバッグ用（問題解決後に削除）
+                    st.caption(f"DEBUG: 設定されているパスワードの長さ: {len(admin_password)}, 入力されたパスワードの長さ: {len(admin_pw_input)}")
+                    st.caption(f"DEBUG: Secretsから取得できているか: {'ADMIN_PASSWORD' in st.secrets}")
 
 # --- メインコンテンツ分岐 ---
 if st.session_state.get('admin_mode', False):
