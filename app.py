@@ -486,15 +486,28 @@ with st.sidebar:
     # セッションステートで管理者モードを管理
     if 'admin_mode' not in st.session_state:
         st.session_state.admin_mode = False
+    if 'admin_authenticated' not in st.session_state:
+        st.session_state.admin_authenticated = False
+    
+    # 管理者パスワード（secrets.tomlまたは環境変数から取得）
+    admin_password = st.secrets.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", "admin123"))
     
     if st.session_state.admin_mode:
         if st.button("🏠 通常モードに戻る", key="exit_admin"):
             st.session_state.admin_mode = False
+            st.session_state.admin_authenticated = False
             st.rerun()
     else:
-        if st.button("📊 管理者モードを開く", key="enter_admin"):
-            st.session_state.admin_mode = True
-            st.rerun()
+        # パスワード入力フォーム
+        if not st.session_state.admin_authenticated:
+            admin_pw_input = st.text_input("🔐 管理者パスワード", type="password", key="admin_pw")
+            if st.button("📊 管理者モードを開く", key="enter_admin"):
+                if admin_pw_input == admin_password:
+                    st.session_state.admin_authenticated = True
+                    st.session_state.admin_mode = True
+                    st.rerun()
+                else:
+                    st.error("❌ パスワードが違います")
 
 # --- メインコンテンツ分岐 ---
 if st.session_state.get('admin_mode', False):
