@@ -20,7 +20,7 @@ import requests
 import base64
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from matplotlib import font_manager
+import japanize_matplotlib  # 日本語フォント対応
 
 # Load environment variables
 load_dotenv(override=True)
@@ -288,43 +288,52 @@ def parse_nutrition_value(value):
         return 0.0
 
 def create_nutrition_chart(df):
-    """栄養推移グラフを作成（matplotlib）"""
-    # 日本語フォント設定（環境に合わせて調整）
-    import platform
-    system = platform.system()
-    if system == 'Windows':
-        font_name = 'MS Gothic'
-    elif system == 'Darwin': # Mac
-        font_name = 'Hiragino Sans'
-    else: # Linux (Streamlit Cloud)
-        font_name = 'IPAGothic' # 一般的なフォールバック
-        
-    plt.rcParams['font.family'] = font_name
-    
-    fig, ax = plt.subplots(figsize=(10, 5))
+    """栄養推移グラフを作成（全栄養素対応・3段構成）"""
+    # japanize_matplotlibによりフォント設定は不要
     
     # 日付をdatetime型に変換
     dates = [datetime.strptime(d, '%Y-%m-%d') for d in df['日付']]
     
-    # プロット
-    ax.plot(dates, df['エネルギー(kcal)'], marker='o', label='エネルギー(kcal)', color='#FF9800')
-    ax.plot(dates, df['塩分(g)'] * 100, marker='s', label='塩分(g)×100', color='#2196F3') # 塩分は見やすく100倍
+    # 3段のグラフを作成
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
     
-    # フォーマット
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
-    ax.grid(True, linestyle='--', alpha=0.7)
-    ax.legend()
-    ax.set_title('栄養摂取推移')
+    # --- 1段目: エネルギー ---
+    ax1.plot(dates, df['エネルギー(kcal)'], marker='o', label='エネルギー(kcal)', color='#FF9800', linewidth=2)
+    ax1.set_ylabel('エネルギー (kcal)')
+    ax1.legend(loc='upper left')
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    ax1.set_title('日ごとの栄養摂取推移')
     
+    # --- 2段目: タンパク質・塩分 (2軸) ---
+    ax2.plot(dates, df['たんぱく質(g)'], marker='s', label='たんぱく質(g)', color='#4CAF50', linewidth=2)
+    ax2.set_ylabel('たんぱく質 (g)')
+    ax2.legend(loc='upper left')
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    
+    # 塩分を右軸で表示
+    ax2_right = ax2.twinx()
+    ax2_right.plot(dates, df['塩分(g)'], marker='^', label='塩分(g)', color='#F44336', linestyle='--', linewidth=2)
+    ax2_right.set_ylabel('塩分 (g)')
+    ax2_right.legend(loc='upper right')
+    
+    # --- 3段目: カリウム・リン ---
+    ax3.plot(dates, df['カリウム(mg)'], marker='v', label='カリウム(mg)', color='#9C27B0', linewidth=2)
+    ax3.plot(dates, df['リン(mg)'], marker='d', label='リン(mg)', color='#3F51B5', linewidth=2)
+    ax3.set_ylabel('ミネラル (mg)')
+    ax3.legend(loc='upper left')
+    ax3.grid(True, linestyle='--', alpha=0.7)
+    
+    # X軸のフォーマット
+    ax3.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
     plt.tight_layout()
     return fig
 
 def generate_html_report(user_name, start_date, end_date, summary_data, records, chart_fig, doctor_comment):
-    """印刷用HTMLレポートを生成"""
+    """印刷用HTMLレポートを生成（全項目対応・印刷ボタン付き）"""
     
     # グラフをBase64に変換
     img_buf = BytesIO()
-    chart_fig.savefig(img_buf, format='png', dpi=150)
+    chart_fig.savefig(img_buf, format='png', dpi=100)
     img_buf.seek(0)
     chart_b64 = base64.b64encode(img_buf.read()).decode('utf-8')
     plt.close(chart_fig)
@@ -346,14 +355,20 @@ def generate_html_report(user_name, start_date, end_date, summary_data, records,
         
         rows_html += f"""
         <tr>
-            <td>{r.get('日付', '')}<br><span class="meal-type">{r.get('食事区分', '')}</span></td>
-            <td class="img-cell">{img_tag}</td>
+            <td style="width: 100px;">
+                <div class="date">{r.get('日付', '')}</div>
+                <div class="meal-type">{r.get('食事区分', '')}</div>
+                <small>{r.get('時刻', '')}</small>
+            </td>
+            <td class="img-cell" style="width: 120px;">{img_tag}</td>
             <td>
-                <strong>{r.get('料理名', '不明')}</strong>
-                <div class="nutrition-badges">
-                    <span class="badge">E: {r.get('エネルギー(kcal)', 0)}kcal</span>
-                    <span class="badge">P: {r.get('たんぱく質(g)', 0)}g</span>
-                    <span class="badge warning">塩: {r.get('塩分(g)', 0)}g</span>
+                <div class="dish-name">{r.get('料理名', '不明')}</div>
+                <div class="nutrition-grid">
+                    <span class="badge energy">E: {r.get('エネルギー(kcal)', 0)}</span>
+                    <span class="badge protein">P: {r.get('たんぱく質(g)', 0)}</span>
+                    <span class="badge salt">塩: {r.get('塩分(g)', 0)}</span>
+                    <span class="badge mineral">K: {r.get('カリウム(mg)', 0)}</span>
+                    <span class="badge mineral">P: {r.get('リン(mg)', 0)}</span>
                 </div>
             </td>
         </tr>
@@ -368,82 +383,94 @@ def generate_html_report(user_name, start_date, end_date, summary_data, records,
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap');
             body {{ font-family: 'Noto Sans JP', sans-serif; color: #333; max-width: 210mm; margin: 0 auto; padding: 20px; background: white; }}
+            
+            /* 印刷ボタン */
+            .print-btn-container {{ position: fixed; top: 20px; right: 20px; z-index: 100; }}
+            .print-btn {{ background: #2196F3; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }}
+            .print-btn:hover {{ background: #1976D2; }}
+            
             .header {{ display: flex; justify-content: space-between; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; margin-bottom: 20px; }}
             .title {{ font-size: 24px; font-weight: bold; color: #2E7D32; }}
-            .meta {{ text-align: right; font-size: 14px; }}
+            .meta {{ text-align: right; font-size: 14px; line-height: 1.5; }}
             
-            .section {{ margin-bottom: 25px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }}
-            .section-title {{ font-size: 18px; font-weight: bold; border-left: 5px solid #FF9800; padding-left: 10px; margin-bottom: 15px; background: #FFF3E0; padding-top: 5px; padding-bottom: 5px; }}
+            .section {{ margin-bottom: 25px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; page-break-inside: avoid; }}
+            .section-title {{ font-size: 18px; font-weight: bold; border-left: 5px solid #FF9800; padding-left: 10px; margin-bottom: 15px; background: #FFF3E0; padding: 5px 10px; }}
             
-            .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center; }}
-            .summary-item {{ background: #f9f9f9; padding: 10px; border-radius: 5px; }}
-            .summary-val {{ font-size: 20px; font-weight: bold; color: #333; }}
-            .summary-label {{ font-size: 12px; color: #666; }}
+            /* サマリー */
+            .summary-table {{ width: 100%; border-collapse: collapse; margin-bottom: 10px; }}
+            .summary-table th {{ background: #f5f5f5; padding: 8px; border: 1px solid #ddd; font-size: 12px; }}
+            .summary-table td {{ padding: 10px; border: 1px solid #ddd; text-align: center; font-weight: bold; font-size: 16px; }}
             
-            .comment-box {{ background: #E8F5E9; padding: 15px; border-radius: 5px; white-space: pre-wrap; }}
+            .comment-box {{ background: #E8F5E9; padding: 15px; border-radius: 5px; white-space: pre-wrap; min-height: 60px; }}
             
-            .chart-container {{ text-align: center; margin: 20px 0; }}
+            .chart-container {{ text-align: center; margin: 10px 0; }}
             .chart-img {{ max-width: 100%; height: auto; border: 1px solid #eee; }}
             
-            table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
-            th, td {{ border-bottom: 1px solid #eee; padding: 10px; vertical-align: top; }}
-            .meal-type {{ font-size: 12px; color: #888; display: block; margin-top: 3px; }}
-            .img-cell {{ width: 120px; text-align: center; }}
+            /* 食事記録テーブル */
+            table.records {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
+            table.records td {{ border-bottom: 1px solid #eee; padding: 10px; vertical-align: middle; }}
+            .date {{ font-weight: bold; }}
+            .meal-type {{ font-size: 12px; color: #666; background: #eee; display: inline-block; padding: 2px 6px; border-radius: 4px; margin: 2px 0; }}
+            .dish-name {{ font-weight: bold; font-size: 16px; margin-bottom: 5px; }}
             .meal-img {{ width: 100px; height: 100px; object-fit: cover; border-radius: 5px; border: 1px solid #ddd; }}
-            .no-img {{ display: inline-block; width: 100px; height: 100px; background: #eee; line-height: 100px; text-align: center; color: #aaa; font-size: 12px; border-radius: 5px; }}
+            .no-img {{ display: inline-block; width: 100px; height: 100px; background: #f5f5f5; line-height: 100px; text-align: center; color: #ccc; font-size: 12px; border-radius: 5px; }}
             
-            .nutrition-badges {{ margin-top: 5px; }}
-            .badge {{ display: inline-block; background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-right: 5px; }}
-            .badge.warning {{ background: #FFEBEE; color: #C62828; }}
+            .nutrition-grid {{ display: flex; flex-wrap: wrap; gap: 5px; }}
+            .badge {{ display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-family: monospace; }}
+            .badge.energy {{ background: #FFF3E0; color: #EF6C00; border: 1px solid #FFE0B2; }}
+            .badge.protein {{ background: #E8F5E9; color: #2E7D32; border: 1px solid #C8E6C9; }}
+            .badge.salt {{ background: #FFEBEE; color: #C62828; border: 1px solid #FFCDD2; font-weight: bold; }}
+            .badge.mineral {{ background: #F3E5F5; color: #6A1B9A; border: 1px solid #E1BEE7; }}
             
             @media print {{
-                body {{ padding: 0; }}
-                .no-print {{ display: none; }}
-                .section {{ page-break-inside: avoid; }}
+                .no-print, .print-btn-container {{ display: none !important; }}
+                body {{ padding: 0; background: white; }}
+                .section {{ border: none; padding: 0; margin-bottom: 20px; }}
+                .chart-img {{ max-width: 100%; max-height: 500px; }}
                 tr {{ page-break-inside: avoid; }}
             }}
         </style>
     </head>
     <body>
+        <div class="print-btn-container">
+            <button class="print-btn" onclick="window.print()">🖨️ 印刷する</button>
+        </div>
+
         <div class="header">
             <div>
                 <div class="title">栄養指導レポート</div>
-                <div style="margin-top:5px; font-size: 16px;">患者様: <strong>{user_name} 様</strong></div>
+                <div style="margin-top:10px; font-size: 18px;">患者様: <strong>{user_name} 様</strong></div>
             </div>
             <div class="meta">
                 作成日: {datetime.now().strftime('%Y/%m/%d')}<br>
-                期間: {start_date} 〜 {end_date}
+                対象期間: {start_date} 〜 {end_date}
             </div>
         </div>
 
         <div class="section">
-            <div class="section-title">📊 期間サマリー</div>
-            <div class="summary-grid">
-                <div class="summary-item">
-                    <div class="summary-label">平均エネルギー</div>
-                    <div class="summary-val">{summary_data['avg_energy']} kcal</div>
-                </div>
-                <div class="summary-item">
-                    <div class="summary-label">平均たんぱく質</div>
-                    <div class="summary-val">{summary_data['avg_protein']} g</div>
-                </div>
-                <div class="summary-item">
-                    <div class="summary-label">平均塩分</div>
-                    <div class="summary-val">{summary_data['avg_salt']} g</div>
-                </div>
-                <div class="summary-item">
-                    <div class="summary-label">平均カリウム</div>
-                    <div class="summary-val">{summary_data['avg_potassium']} mg</div>
-                </div>
-                <div class="summary-item">
-                    <div class="summary-label">平均リン</div>
-                    <div class="summary-val">{summary_data['avg_phosphorus']} mg</div>
-                </div>
-                <div class="summary-item">
-                    <div class="summary-label">記録日数</div>
-                    <div class="summary-val">{summary_data['day_count']} 日</div>
-                </div>
-            </div>
+            <div class="section-title">📊 期間サマリー (1日平均)</div>
+            <table class="summary-table">
+                <thead>
+                    <tr>
+                        <th>エネルギー</th>
+                        <th>たんぱく質</th>
+                        <th>塩分</th>
+                        <th>カリウム</th>
+                        <th>リン</th>
+                        <th>記録日数</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{summary_data['avg_energy']} kcal</td>
+                        <td>{summary_data['avg_protein']} g</td>
+                        <td style="color: #C62828;">{summary_data['avg_salt']} g</td>
+                        <td>{summary_data['avg_potassium']} mg</td>
+                        <td>{summary_data['avg_phosphorus']} mg</td>
+                        <td>{summary_data['day_count']} 日</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
         
         <div class="section">
@@ -451,8 +478,8 @@ def generate_html_report(user_name, start_date, end_date, summary_data, records,
             <div class="comment-box">{doctor_comment if doctor_comment else "（コメントなし）"}</div>
         </div>
 
-        <div class="section" style="page-break-inside: avoid;">
-            <div class="section-title">📈 推移グラフ</div>
+        <div class="section">
+            <div class="section-title">📈 栄養摂取推移</div>
             <div class="chart-container">
                 <img src="data:image/png;base64,{chart_b64}" class="chart-img">
             </div>
@@ -460,7 +487,7 @@ def generate_html_report(user_name, start_date, end_date, summary_data, records,
 
         <div class="section">
             <div class="section-title">🍽️ 食事記録詳細</div>
-            <table>
+            <table class="records">
                 {rows_html}
             </table>
         </div>
@@ -801,15 +828,22 @@ if st.session_state.get('admin_mode', False):
                 for record in filtered_records:
                     date_key = record.get('日付', '')
                     if date_key not in daily_data:
-                        daily_data[date_key] = {'energy': 0, 'protein': 0, 'salt': 0}
+                        daily_data[date_key] = {'energy': 0, 'protein': 0, 'salt': 0, 'potassium': 0, 'phosphorus': 0}
                     daily_data[date_key]['energy'] += parse_nutrition_value(record.get('エネルギー(kcal)', 0))
                     daily_data[date_key]['protein'] += parse_nutrition_value(record.get('たんぱく質(g)', 0))
                     daily_data[date_key]['salt'] += parse_nutrition_value(record.get('塩分(g)', 0))
+                    daily_data[date_key]['potassium'] += parse_nutrition_value(record.get('カリウム(mg)', 0))
+                    daily_data[date_key]['phosphorus'] += parse_nutrition_value(record.get('リン(mg)', 0))
                 
                 if daily_data:
                     import pandas as pd
                     chart_df = pd.DataFrame([
-                        {'日付': k, 'エネルギー(kcal)': v['energy'], 'たんぱく質(g)': v['protein'], '塩分(g)': v['salt']}
+                        {'日付': k, 
+                         'エネルギー(kcal)': v['energy'], 
+                         'たんぱく質(g)': v['protein'], 
+                         '塩分(g)': v['salt'],
+                         'カリウム(mg)': v.get('potassium', 0), # 既存データのためにget
+                         'リン(mg)': v.get('phosphorus', 0)}      # 既存データのためにget
                         for k, v in sorted(daily_data.items())
                     ])
                     

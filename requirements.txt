@@ -6,3 +6,4 @@ qrcode
 gspread
 requests
 matplotlib
+japanize-matplotlib
