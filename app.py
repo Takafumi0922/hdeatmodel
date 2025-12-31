@@ -489,9 +489,8 @@ with st.sidebar:
     if 'admin_authenticated' not in st.session_state:
         st.session_state.admin_authenticated = False
     
-    # 管理者パスワード（secrets.tomlまたは環境変数から取得、フォールバックとしてハードコード）
-    default_admin_pw = "kanayama1700"  # TODO: 後でsecretsに移行
-    admin_password = st.secrets.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", default_admin_pw))
+    # 管理者パスワード（secrets.tomlまたは環境変数から取得）
+    admin_password = st.secrets.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", "admin123"))
     
     if st.session_state.admin_mode:
         if st.button("🏠 通常モードに戻る", key="exit_admin"):
@@ -509,9 +508,6 @@ with st.sidebar:
                     st.rerun()
                 else:
                     st.error("❌ パスワードが違います")
-                    # デバッグ用（問題解決後に削除）
-                    st.caption(f"DEBUG: 設定されているパスワードの長さ: {len(admin_password)}, 入力されたパスワードの長さ: {len(admin_pw_input)}")
-                    st.caption(f"DEBUG: Secretsから取得できているか: {'ADMIN_PASSWORD' in st.secrets}")
 
 # --- メインコンテンツ分岐 ---
 if st.session_state.get('admin_mode', False):
