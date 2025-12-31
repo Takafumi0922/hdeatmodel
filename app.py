@@ -489,8 +489,9 @@ with st.sidebar:
     if 'admin_authenticated' not in st.session_state:
         st.session_state.admin_authenticated = False
     
-    # 管理者パスワード（secrets.tomlまたは環境変数から取得）
-    admin_password = st.secrets.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", "admin123"))
+    # 管理者パスワード（secrets.tomlまたは環境変数から取得、フォールバックとしてハードコード）
+    default_admin_pw = "kanayama1700"  # TODO: 後でsecretsに移行
+    admin_password = st.secrets.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", default_admin_pw))
     
     if st.session_state.admin_mode:
         if st.button("🏠 通常モードに戻る", key="exit_admin"):
