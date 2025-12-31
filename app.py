@@ -514,7 +514,9 @@ st.markdown("""
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
         color: #333;
         text-align: center;
-        padding: 2rem 0;
+        padding: 1rem 0;
+        font-size: clamp(1.5rem, 5vw, 3rem); /* 画面幅に応じてフォントサイズ調整 */
+        white-space: nowrap; /* 勝手な改行を防ぐ */
     }
     .stButton>button {
         width: 100%;
@@ -541,7 +543,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 class='main-header'>透析 栄養管理AIアプリ 🥗Ver1.1</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>透析 栄養管理AIアプリ 🥗</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center;'>食事の写真を撮るorアップロードするだけで、透析管理に必要な栄養素をAIが瞬時に解析します。</p>", unsafe_allow_html=True)
 
 # Status indicator
