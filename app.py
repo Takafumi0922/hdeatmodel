@@ -513,7 +513,7 @@ if st.session_state.get('admin_mode', False):
             st.warning("📭 スプレッドシートにデータがまだありません。")
         else:
             # ユーザー一覧を取得
-            users = list(set([r.get('ユーザー', '') for r in all_records if r.get('ユーザー')]))
+            users = list(set([r.get('名前', '') for r in all_records if r.get('名前')]))
             users.sort()
             
             # --- フィルタUI ---
@@ -548,17 +548,17 @@ if st.session_state.get('admin_mode', False):
                 
                 # ユーザーフィルタ
                 if selected_user != "全員":
-                    if record.get('ユーザー') != selected_user:
+                    if record.get('名前') != selected_user:
                         continue
                 
                 # 食事区分を追加
-                time_str = record.get('時間', '')
+                time_str = record.get('時刻', '')
                 record['食事区分'] = classify_meal_type(time_str)
                 
                 filtered_records.append(record)
             
-            # 日付・時間でソート
-            filtered_records.sort(key=lambda x: (x.get('日付', ''), x.get('時間', '')))
+            # 日付・時刻でソート
+            filtered_records.sort(key=lambda x: (x.get('日付', ''), x.get('時刻', '')))
             
             st.markdown(f"**{len(filtered_records)}件** のデータが見つかりました")
             
@@ -626,7 +626,7 @@ if st.session_state.get('admin_mode', False):
                         
                         with col_img:
                             # 画像表示（IMAGE関数からURLを抽出）
-                            image_cell = record.get('食事写真', '')
+                            image_cell = record.get('料理写真', '')
                             if image_cell and '=IMAGE(' in str(image_cell):
                                 # =IMAGE("URL") からURLを抽出
                                 url_match = re.search(r'=IMAGE\("([^"]+)"\)', str(image_cell))
@@ -638,8 +638,8 @@ if st.session_state.get('admin_mode', False):
                                 st.caption("📷 画像なし")
                         
                         with col_info:
-                            st.markdown(f"**ユーザー**: {record.get('ユーザー', '不明')}")
-                            st.markdown(f"**時間**: {record.get('時間', '不明')}")
+                            st.markdown(f"**ユーザー**: {record.get('名前', '不明')}")
+                            st.markdown(f"**時刻**: {record.get('時刻', '不明')}")
                             st.markdown(f"**エネルギー**: {record.get('エネルギー(kcal)', '不明')} kcal")
                             st.markdown(f"**たんぱく質**: {record.get('たんぱく質(g)', '不明')} g")
                             st.markdown(f"**塩分**: {record.get('塩分(g)', '不明')} g")
