@@ -287,7 +287,7 @@ def parse_nutrition_value(value):
     except:
         return 0.0
 
-def create_nutrition_chart(df):
+def create_nutrition_chart(df, start_date=None, end_date=None):
     """栄養推移グラフを作成（全栄養素対応・3段構成）"""
     # japanize_matplotlibによりフォント設定は不要
     
@@ -325,6 +325,14 @@ def create_nutrition_chart(df):
     
     # X軸のフォーマット
     ax3.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+    
+    # 期間指定がある場合はX軸の範囲を固定
+    if start_date and end_date:
+        # datetime型に変換して範囲を設定
+        start_dt = datetime.combine(start_date, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.min.time())
+        ax3.set_xlim([start_dt, end_dt])
+    
     plt.tight_layout()
     return fig
 
@@ -848,7 +856,7 @@ if st.session_state.get('admin_mode', False):
                     ])
                     
                     # Streamlitでの表示もmatplotlibを使用（統一のため）
-                    fig = create_nutrition_chart(chart_df)
+                    fig = create_nutrition_chart(chart_df, start_date, end_date)
                     st.pyplot(fig)
                 
                 # --- 食事記録一覧 ---
@@ -903,7 +911,7 @@ if st.session_state.get('admin_mode', False):
                         }
                         
                         # グラフの再作成
-                        chart_fig = create_nutrition_chart(chart_df)
+                        chart_fig = create_nutrition_chart(chart_df, start_date, end_date)
                         
                         # HTML生成
                         report_html = generate_html_report(
