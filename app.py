@@ -18,6 +18,9 @@ import gspread
 
 import requests
 import base64
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib import font_manager
 
 # Load environment variables
 load_dotenv(override=True)
@@ -283,6 +286,188 @@ def parse_nutrition_value(value):
         return float(value_str)
     except:
         return 0.0
+
+def create_nutrition_chart(df):
+    """栄養推移グラフを作成（matplotlib）"""
+    # 日本語フォント設定（環境に合わせて調整）
+    import platform
+    system = platform.system()
+    if system == 'Windows':
+        font_name = 'MS Gothic'
+    elif system == 'Darwin': # Mac
+        font_name = 'Hiragino Sans'
+    else: # Linux (Streamlit Cloud)
+        font_name = 'IPAGothic' # 一般的なフォールバック
+        
+    plt.rcParams['font.family'] = font_name
+    
+    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    # 日付をdatetime型に変換
+    dates = [datetime.strptime(d, '%Y-%m-%d') for d in df['日付']]
+    
+    # プロット
+    ax.plot(dates, df['エネルギー(kcal)'], marker='o', label='エネルギー(kcal)', color='#FF9800')
+    ax.plot(dates, df['塩分(g)'] * 100, marker='s', label='塩分(g)×100', color='#2196F3') # 塩分は見やすく100倍
+    
+    # フォーマット
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+    ax.grid(True, linestyle='--', alpha=0.7)
+    ax.legend()
+    ax.set_title('栄養摂取推移')
+    
+    plt.tight_layout()
+    return fig
+
+def generate_html_report(user_name, start_date, end_date, summary_data, records, chart_fig, doctor_comment):
+    """印刷用HTMLレポートを生成"""
+    
+    # グラフをBase64に変換
+    img_buf = BytesIO()
+    chart_fig.savefig(img_buf, format='png', dpi=150)
+    img_buf.seek(0)
+    chart_b64 = base64.b64encode(img_buf.read()).decode('utf-8')
+    plt.close(chart_fig)
+    
+    # レポート行の生成
+    rows_html = ""
+    for r in records:
+        # 画像URL取得
+        img_src = ""
+        image_cell = r.get('料理写真', '')
+        if image_cell and '=IMAGE(' in str(image_cell):
+            match = re.search(r'=IMAGE\("([^"]+)"\)', str(image_cell))
+            if match:
+                img_src = match.group(1)
+        elif image_cell and str(image_cell).startswith('http'):
+            img_src = image_cell
+            
+        img_tag = f'<img src="{img_src}" class="meal-img">' if img_src else '<span class="no-img">画像なし</span>'
+        
+        rows_html += f"""
+        <tr>
+            <td>{r.get('日付', '')}<br><span class="meal-type">{r.get('食事区分', '')}</span></td>
+            <td class="img-cell">{img_tag}</td>
+            <td>
+                <strong>{r.get('料理名', '不明')}</strong>
+                <div class="nutrition-badges">
+                    <span class="badge">E: {r.get('エネルギー(kcal)', 0)}kcal</span>
+                    <span class="badge">P: {r.get('たんぱく質(g)', 0)}g</span>
+                    <span class="badge warning">塩: {r.get('塩分(g)', 0)}g</span>
+                </div>
+            </td>
+        </tr>
+        """
+        
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>栄養指導レポート</title>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap');
+            body {{ font-family: 'Noto Sans JP', sans-serif; color: #333; max-width: 210mm; margin: 0 auto; padding: 20px; background: white; }}
+            .header {{ display: flex; justify-content: space-between; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; margin-bottom: 20px; }}
+            .title {{ font-size: 24px; font-weight: bold; color: #2E7D32; }}
+            .meta {{ text-align: right; font-size: 14px; }}
+            
+            .section {{ margin-bottom: 25px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }}
+            .section-title {{ font-size: 18px; font-weight: bold; border-left: 5px solid #FF9800; padding-left: 10px; margin-bottom: 15px; background: #FFF3E0; padding-top: 5px; padding-bottom: 5px; }}
+            
+            .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center; }}
+            .summary-item {{ background: #f9f9f9; padding: 10px; border-radius: 5px; }}
+            .summary-val {{ font-size: 20px; font-weight: bold; color: #333; }}
+            .summary-label {{ font-size: 12px; color: #666; }}
+            
+            .comment-box {{ background: #E8F5E9; padding: 15px; border-radius: 5px; white-space: pre-wrap; }}
+            
+            .chart-container {{ text-align: center; margin: 20px 0; }}
+            .chart-img {{ max-width: 100%; height: auto; border: 1px solid #eee; }}
+            
+            table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
+            th, td {{ border-bottom: 1px solid #eee; padding: 10px; vertical-align: top; }}
+            .meal-type {{ font-size: 12px; color: #888; display: block; margin-top: 3px; }}
+            .img-cell {{ width: 120px; text-align: center; }}
+            .meal-img {{ width: 100px; height: 100px; object-fit: cover; border-radius: 5px; border: 1px solid #ddd; }}
+            .no-img {{ display: inline-block; width: 100px; height: 100px; background: #eee; line-height: 100px; text-align: center; color: #aaa; font-size: 12px; border-radius: 5px; }}
+            
+            .nutrition-badges {{ margin-top: 5px; }}
+            .badge {{ display: inline-block; background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-right: 5px; }}
+            .badge.warning {{ background: #FFEBEE; color: #C62828; }}
+            
+            @media print {{
+                body {{ padding: 0; }}
+                .no-print {{ display: none; }}
+                .section {{ page-break-inside: avoid; }}
+                tr {{ page-break-inside: avoid; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div>
+                <div class="title">栄養指導レポート</div>
+                <div style="margin-top:5px; font-size: 16px;">患者様: <strong>{user_name} 様</strong></div>
+            </div>
+            <div class="meta">
+                作成日: {datetime.now().strftime('%Y/%m/%d')}<br>
+                期間: {start_date} 〜 {end_date}
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">📊 期間サマリー</div>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="summary-label">平均エネルギー</div>
+                    <div class="summary-val">{summary_data['avg_energy']} kcal</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">平均たんぱく質</div>
+                    <div class="summary-val">{summary_data['avg_protein']} g</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">平均塩分</div>
+                    <div class="summary-val">{summary_data['avg_salt']} g</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">平均カリウム</div>
+                    <div class="summary-val">{summary_data['avg_potassium']} mg</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">平均リン</div>
+                    <div class="summary-val">{summary_data['avg_phosphorus']} mg</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">記録日数</div>
+                    <div class="summary-val">{summary_data['day_count']} 日</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">👨‍⚕️ 栄養指導コメント</div>
+            <div class="comment-box">{doctor_comment if doctor_comment else "（コメントなし）"}</div>
+        </div>
+
+        <div class="section" style="page-break-inside: avoid;">
+            <div class="section-title">📈 推移グラフ</div>
+            <div class="chart-container">
+                <img src="data:image/png;base64,{chart_b64}" class="chart-img">
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">🍽️ 食事記録詳細</div>
+            <table>
+                {rows_html}
+            </table>
+        </div>
+    </body>
+    </html>
+    """
+    return html
 
 # Custom CSS for styling
 st.markdown("""
@@ -623,12 +808,14 @@ if st.session_state.get('admin_mode', False):
                 
                 if daily_data:
                     import pandas as pd
-                    df = pd.DataFrame([
+                    chart_df = pd.DataFrame([
                         {'日付': k, 'エネルギー(kcal)': v['energy'], 'たんぱく質(g)': v['protein'], '塩分(g)': v['salt']}
                         for k, v in sorted(daily_data.items())
                     ])
                     
-                    st.line_chart(df.set_index('日付'))
+                    # Streamlitでの表示もmatplotlibを使用（統一のため）
+                    fig = create_nutrition_chart(chart_df)
+                    st.pyplot(fig)
                 
                 # --- 食事記録一覧 ---
                 st.markdown("### 🍽️ 食事記録一覧")
@@ -658,6 +845,48 @@ if st.session_state.get('admin_mode', False):
                             st.markdown(f"**塩分**: {record.get('塩分(g)', '不明')} g")
                             st.markdown(f"**カリウム**: {record.get('カリウム(mg)', '不明')} mg")
                             st.markdown(f"**リン**: {record.get('リン(mg)', '不明')} mg")
+                
+                # --- レポート作成 ---
+                st.markdown("---")
+                st.markdown("### 🖨️ 印刷用レポート")
+                
+                with st.form("report_form"):
+                    doctor_comment = st.text_area("👨‍⚕️ 栄養指導コメント", height=100, placeholder="ここに患者様へのアドバイスを入力してください")
+                    submitted = st.form_submit_button("📄 レポートをプレビュー生成")
+                    
+                if submitted:
+                    if not daily_data:
+                        st.error("データがないためレポートを作成できません")
+                    else:
+                        # サマリーデータの作成
+                        summary_data = {
+                            'avg_energy': f"{total_energy/meal_count:.0f}" if meal_count else "0",
+                            'avg_protein': f"{total_protein/meal_count:.1f}" if meal_count else "0",
+                            'avg_salt': f"{total_salt/meal_count:.1f}" if meal_count else "0",
+                            'avg_potassium': f"{total_potassium/meal_count:.0f}" if meal_count else "0",
+                            'avg_phosphorus': f"{total_phosphorus/meal_count:.0f}" if meal_count else "0",
+                            'day_count': str(day_count)
+                        }
+                        
+                        # グラフの再作成
+                        chart_fig = create_nutrition_chart(chart_df)
+                        
+                        # HTML生成
+                        report_html = generate_html_report(
+                            user_name=selected_user if selected_user != "全員" else "患者",
+                            start_date=start_date.strftime('%Y/%m/%d'),
+                            end_date=end_date.strftime('%Y/%m/%d'),
+                            summary_data=summary_data,
+                            records=filtered_records,
+                            chart_fig=chart_fig,
+                            doctor_comment=doctor_comment
+                        )
+                        
+                        st.markdown("### 📄 レポートプレビュー")
+                        st.info("以下のエリアの内容が印刷されます。ブラウザの印刷機能（Ctrl+P / Cmd+P）を使用してください。")
+                        
+                        # HTMLを表示（高さは適当に確保）
+                        st.components.v1.html(report_html, height=1200, scrolling=True)
     
     # 管理者モードの場合は通常モードを表示しない
     st.stop()
