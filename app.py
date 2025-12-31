@@ -515,8 +515,9 @@ st.markdown("""
         color: #333;
         text-align: center;
         padding: 1rem 0;
-        font-size: clamp(1.5rem, 5vw, 3rem); /* 画面幅に応じてフォントサイズ調整 */
-        white-space: nowrap; /* 勝手な改行を防ぐ */
+        font-size: clamp(1.2rem, 5vw, 2.5rem); /* フォントサイズを少し控えめに */
+        word-break: keep-all; /* 単語の途中での改行を防ぐ */
+        overflow-wrap: break-word;
     }
     .stButton>button {
         width: 100%;
