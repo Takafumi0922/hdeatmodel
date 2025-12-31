@@ -237,6 +237,53 @@ def parse_nutrition_from_response(response_text):
             nutrition[key] = '不明'
     
     return nutrition
+
+# --- 管理者モード用関数 ---
+def get_all_records(gc, spreadsheet_name="栄養管理AI"):
+    """スプレッドシートから全データを取得"""
+    try:
+        spreadsheet = gc.open(spreadsheet_name)
+        worksheet = spreadsheet.sheet1
+        records = worksheet.get_all_records()
+        return records
+    except Exception as e:
+        st.warning(f"データ取得に失敗しました: {e}")
+        return []
+
+def classify_meal_type(time_str):
+    """時刻から食事区分を判定"""
+    try:
+        # HH:MM:SS 形式を想定
+        parts = time_str.split(':')
+        hour = int(parts[0])
+        
+        if 5 <= hour < 10:
+            return "🌅 朝食"
+        elif 10 <= hour < 15:
+            return "☀️ 昼食"
+        elif 15 <= hour < 22:
+            return "🌙 夕食"
+        else:
+            return "🌃 夜食"
+    except:
+        return "❓ 不明"
+
+def parse_nutrition_value(value):
+    """栄養素の値を数値に変換（範囲の場合は中間値）"""
+    try:
+        if isinstance(value, (int, float)):
+            return float(value)
+        value_str = str(value).replace(',', '').replace(' ', '')
+        # 範囲表記（〜、-、~）の場合は中間値を取る
+        for sep in ['〜', '～', '~', '-']:
+            if sep in value_str:
+                parts = value_str.split(sep)
+                nums = [float(p) for p in parts if p]
+                return sum(nums) / len(nums)
+        return float(value_str)
+    except:
+        return 0.0
+
 # Custom CSS for styling
 st.markdown("""
 <style>
@@ -431,7 +478,178 @@ with st.sidebar:
         
     except Exception as e:
         st.write("QRコードの生成に失敗しました")
+    
+    # --- 管理者モード切替 ---
+    st.markdown("---")
+    st.subheader("📊 管理者機能")
+    
+    # セッションステートで管理者モードを管理
+    if 'admin_mode' not in st.session_state:
+        st.session_state.admin_mode = False
+    
+    if st.session_state.admin_mode:
+        if st.button("🏠 通常モードに戻る", key="exit_admin"):
+            st.session_state.admin_mode = False
+            st.rerun()
+    else:
+        if st.button("📊 管理者モードを開く", key="enter_admin"):
+            st.session_state.admin_mode = True
+            st.rerun()
+
+# --- メインコンテンツ分岐 ---
+if st.session_state.get('admin_mode', False):
+    # ========== 管理者モード ==========
+    st.markdown("---")
+    st.markdown("## 📊 食事記録レポート（管理者モード）")
+    
+    if not gc:
+        st.error("⚠️ スプレッドシート連携が設定されていないため、管理者モードは使用できません。")
+    else:
+        # データ取得
+        with st.spinner("データを読み込み中..."):
+            all_records = get_all_records(gc)
         
+        if not all_records:
+            st.warning("📭 スプレッドシートにデータがまだありません。")
+        else:
+            # ユーザー一覧を取得
+            users = list(set([r.get('ユーザー', '') for r in all_records if r.get('ユーザー')]))
+            users.sort()
+            
+            # --- フィルタUI ---
+            st.markdown("### 🔍 検索条件")
+            col_filter1, col_filter2, col_filter3 = st.columns(3)
+            
+            with col_filter1:
+                selected_user = st.selectbox("👤 ユーザー", ["全員"] + users)
+            
+            with col_filter2:
+                # 日付範囲（デフォルトは過去30日）
+                from datetime import date
+                today = date.today()
+                default_start = today - timedelta(days=30)
+                start_date = st.date_input("📅 開始日", default_start)
+            
+            with col_filter3:
+                end_date = st.date_input("📅 終了日", today)
+            
+            # --- データフィルタリング ---
+            filtered_records = []
+            for record in all_records:
+                # 日付フィルタ
+                try:
+                    record_date_str = record.get('日付', '')
+                    if record_date_str:
+                        record_date = datetime.strptime(record_date_str, '%Y-%m-%d').date()
+                        if not (start_date <= record_date <= end_date):
+                            continue
+                except:
+                    continue
+                
+                # ユーザーフィルタ
+                if selected_user != "全員":
+                    if record.get('ユーザー') != selected_user:
+                        continue
+                
+                # 食事区分を追加
+                time_str = record.get('時間', '')
+                record['食事区分'] = classify_meal_type(time_str)
+                
+                filtered_records.append(record)
+            
+            # 日付・時間でソート
+            filtered_records.sort(key=lambda x: (x.get('日付', ''), x.get('時間', '')))
+            
+            st.markdown(f"**{len(filtered_records)}件** のデータが見つかりました")
+            
+            if filtered_records:
+                # --- 期間サマリー ---
+                st.markdown("### 📈 期間サマリー")
+                
+                # 栄養素の集計
+                total_energy = sum(parse_nutrition_value(r.get('エネルギー(kcal)', 0)) for r in filtered_records)
+                total_protein = sum(parse_nutrition_value(r.get('たんぱく質(g)', 0)) for r in filtered_records)
+                total_salt = sum(parse_nutrition_value(r.get('塩分(g)', 0)) for r in filtered_records)
+                total_potassium = sum(parse_nutrition_value(r.get('カリウム(mg)', 0)) for r in filtered_records)
+                total_phosphorus = sum(parse_nutrition_value(r.get('リン(mg)', 0)) for r in filtered_records)
+                
+                meal_count = len(filtered_records)
+                
+                # 日数を計算
+                unique_dates = set(r.get('日付') for r in filtered_records if r.get('日付'))
+                day_count = len(unique_dates) if unique_dates else 1
+                
+                col_sum1, col_sum2, col_sum3 = st.columns(3)
+                
+                with col_sum1:
+                    st.metric("総食事回数", f"{meal_count}回")
+                    st.metric("記録日数", f"{day_count}日")
+                
+                with col_sum2:
+                    st.metric("平均エネルギー/食", f"{total_energy/meal_count:.0f} kcal" if meal_count else "0 kcal")
+                    st.metric("平均たんぱく質/食", f"{total_protein/meal_count:.1f} g" if meal_count else "0 g")
+                    st.metric("平均塩分/食", f"{total_salt/meal_count:.1f} g" if meal_count else "0 g")
+                
+                with col_sum3:
+                    st.metric("1日平均エネルギー", f"{total_energy/day_count:.0f} kcal" if day_count else "0 kcal")
+                    st.metric("1日平均たんぱく質", f"{total_protein/day_count:.1f} g" if day_count else "0 g")
+                    st.metric("1日平均塩分", f"{total_salt/day_count:.1f} g" if day_count else "0 g")
+                
+                # --- グラフ表示 ---
+                st.markdown("### 📊 日ごとの推移")
+                
+                # 日ごとの集計
+                daily_data = {}
+                for record in filtered_records:
+                    date_key = record.get('日付', '')
+                    if date_key not in daily_data:
+                        daily_data[date_key] = {'energy': 0, 'protein': 0, 'salt': 0}
+                    daily_data[date_key]['energy'] += parse_nutrition_value(record.get('エネルギー(kcal)', 0))
+                    daily_data[date_key]['protein'] += parse_nutrition_value(record.get('たんぱく質(g)', 0))
+                    daily_data[date_key]['salt'] += parse_nutrition_value(record.get('塩分(g)', 0))
+                
+                if daily_data:
+                    import pandas as pd
+                    df = pd.DataFrame([
+                        {'日付': k, 'エネルギー(kcal)': v['energy'], 'たんぱく質(g)': v['protein'], '塩分(g)': v['salt']}
+                        for k, v in sorted(daily_data.items())
+                    ])
+                    
+                    st.line_chart(df.set_index('日付'))
+                
+                # --- 食事記録一覧 ---
+                st.markdown("### 🍽️ 食事記録一覧")
+                
+                for record in filtered_records:
+                    with st.expander(f"{record.get('日付', '')} {record.get('食事区分', '')} - {record.get('料理名', '不明')}"):
+                        col_img, col_info = st.columns([1, 2])
+                        
+                        with col_img:
+                            # 画像表示（IMAGE関数からURLを抽出）
+                            image_cell = record.get('食事写真', '')
+                            if image_cell and '=IMAGE(' in str(image_cell):
+                                # =IMAGE("URL") からURLを抽出
+                                url_match = re.search(r'=IMAGE\("([^"]+)"\)', str(image_cell))
+                                if url_match:
+                                    st.image(url_match.group(1), width=150)
+                            elif image_cell and image_cell.startswith('http'):
+                                st.image(image_cell, width=150)
+                            else:
+                                st.caption("📷 画像なし")
+                        
+                        with col_info:
+                            st.markdown(f"**ユーザー**: {record.get('ユーザー', '不明')}")
+                            st.markdown(f"**時間**: {record.get('時間', '不明')}")
+                            st.markdown(f"**エネルギー**: {record.get('エネルギー(kcal)', '不明')} kcal")
+                            st.markdown(f"**たんぱく質**: {record.get('たんぱく質(g)', '不明')} g")
+                            st.markdown(f"**塩分**: {record.get('塩分(g)', '不明')} g")
+                            st.markdown(f"**カリウム**: {record.get('カリウム(mg)', '不明')} mg")
+                            st.markdown(f"**リン**: {record.get('リン(mg)', '不明')} mg")
+    
+    # 管理者モードの場合は通常モードを表示しない
+    st.stop()
+
+# ========== 通常モード（食事入力） ==========
 # Input Method
 st.write("---")
 input_method = st.radio("入力方法", ["カメラで撮影", "画像をアップロード"], horizontal=True, label_visibility="collapsed")
@@ -631,5 +849,3 @@ st.markdown("""
     あくまで日々の目安としてご利用いただき、厳密な栄養管理については医師や管理栄養士の指導に従ってください。
 </div>
 """, unsafe_allow_html=True)
-
-
