@@ -550,6 +550,16 @@ if pdf_reference:
 else:
     st.caption("ℹ️ 標準モードで動作中 (成分表PDF未検出)")
 
+# --- Sidebar QR Code ---
+with st.sidebar:
+    st.markdown("### 📱 スマホで開く")
+    qr_url = "https://hdeatmodel-rjakrfranrepnakbg9qbkc.streamlit.app/"
+    qr_img = qrcode.make(qr_url)
+    # PIL画像を表示
+    st.image(qr_img.get_image(), caption="読み込んでアプリを開く", width=150)
+    st.caption(f"[アプリを開く]({qr_url})")
+    st.markdown("---")
+
 # --- Nickname Section (with Local Storage) ---
 st.markdown("---")
 
