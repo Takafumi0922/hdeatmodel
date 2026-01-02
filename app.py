@@ -253,6 +253,19 @@ def get_all_records(gc, spreadsheet_name="栄養管理AI"):
         st.warning(f"データ取得に失敗しました: {e}")
         return []
 
+def get_existing_nicknames(gc, spreadsheet_name="栄養管理AI"):
+    """スプレッドシートから既存のニックネーム一覧を取得"""
+    try:
+        spreadsheet = gc.open(spreadsheet_name)
+        worksheet = spreadsheet.sheet1
+        records = worksheet.get_all_records()
+        # "名前"列からユニークな値を取得
+        nicknames = set(r.get('名前', '') for r in records if r.get('名前'))
+        return nicknames
+    except Exception as e:
+        # エラー時は空のセットを返す（チェックをスキップ）
+        return set()
+
 def classify_meal_type(time_str):
     """時刻から食事区分を判定"""
     try:
@@ -607,10 +620,16 @@ else:
         submitted = st.form_submit_button("設定")
         
         if submitted and new_nickname:
-            st.session_state.nickname = new_nickname
-            # URLパラメータに追加（これでURLが更新される）
-            st.query_params["nickname"] = new_nickname
-            st.rerun()
+            # スプレッドシートで重複チェック
+            existing_nicknames = get_existing_nicknames(gc) if gc else set()
+            
+            if new_nickname in existing_nicknames:
+                st.error(f"❌ 「{new_nickname}」は既に使用されています。別のニックネームを入力してください。")
+            else:
+                st.session_state.nickname = new_nickname
+                # URLパラメータに追加（これでURLが更新される）
+                st.query_params["nickname"] = new_nickname
+                st.rerun()
 
 # Helper to get local IP and generate QR
 # Only show this in the sidebar to keep main view clean
