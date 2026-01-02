@@ -566,15 +566,6 @@ if pdf_reference:
 else:
     st.caption("ℹ️ 標準モードで動作中 (成分表PDF未検出)")
 
-# --- Sidebar QR Code ---
-with st.sidebar:
-    st.markdown("### 📱 スマホで開く")
-    qr_url = "https://hdeatmodel-rjakrfranrepnakbg9qbkc.streamlit.app/"
-    qr_img = qrcode.make(qr_url)
-    # PIL画像を表示
-    st.image(qr_img.get_image(), caption="読み込んでアプリを開く", width=150)
-    st.caption(f"[アプリを開く]({qr_url})")
-    st.markdown("---")
 
 # --- Nickname Section (with Local Storage) ---
 st.markdown("---")
@@ -631,36 +622,8 @@ else:
                 st.query_params["nickname"] = new_nickname
                 st.rerun()
 
-# Helper to get local IP and generate QR
-# Only show this in the sidebar to keep main view clean
+# --- サイドバー: 管理者機能 ---
 with st.sidebar:
-    st.header("設定")
-    st.subheader("スマホで利用")
-    try:
-        # Get local IP address
-        hostname = socket.gethostname()
-        local_ip = socket.gethostbyname(hostname)
-        
-        # Streamlit default port is 8501
-        network_url = f"http://{local_ip}:8501"
-        
-        # Generate QR Code
-        qr = qrcode.QRCode(box_size=10, border=4)
-        qr.add_data(network_url)
-        qr.make(fit=True)
-        img_qr = qr.make_image(fill_color="black", back_color="white")
-        
-        # Convert to bytes for streamlit
-        buf = BytesIO()
-        img_qr.save(buf, format="PNG")
-        st.image(buf.getvalue(), caption="スマホでスキャンして起動", width=200)
-        st.write(f"URL: {network_url}")
-        
-    except Exception as e:
-        st.write("QRコードの生成に失敗しました")
-    
-    # --- 管理者モード切替 ---
-    st.markdown("---")
     st.subheader("📊 管理者機能")
     
     # セッションステートで管理者モードを管理
