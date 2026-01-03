@@ -300,6 +300,152 @@ def parse_nutrition_value(value):
     except:
         return 0.0
 
+# --- 今日の累計栄養素表示機能 ---
+def get_today_records(gc, nickname, spreadsheet_name="栄養管理AI"):
+    """今日のデータをニックネームで抽出"""
+    try:
+        spreadsheet = gc.open(spreadsheet_name)
+        worksheet = spreadsheet.sheet1
+        records = worksheet.get_all_records()
+        
+        # 日本時間の今日の日付を取得
+        JST = timezone(timedelta(hours=9), 'JST')
+        today_str = datetime.now(JST).strftime('%Y-%m-%d')
+        
+        # ニックネームと今日の日付でフィルタ
+        today_records = [
+            r for r in records 
+            if r.get('名前') == nickname and r.get('日付') == today_str
+        ]
+        return today_records
+    except Exception as e:
+        return []
+
+def calculate_daily_totals(records):
+    """累計値を計算"""
+    totals = {
+        'energy': 0.0,
+        'protein': 0.0,
+        'salt': 0.0,
+        'potassium': 0.0,
+        'phosphorus': 0.0,
+        'meal_count': len(records)
+    }
+    
+    for record in records:
+        totals['energy'] += parse_nutrition_value(record.get('エネルギー(kcal)', 0))
+        totals['protein'] += parse_nutrition_value(record.get('たんぱく質(g)', 0))
+        totals['salt'] += parse_nutrition_value(record.get('塩分(g)', 0))
+        totals['potassium'] += parse_nutrition_value(record.get('カリウム(mg)', 0))
+        totals['phosphorus'] += parse_nutrition_value(record.get('リン(mg)', 0))
+    
+    return totals
+
+def get_nutrition_targets(user_weight=None):
+    """目標値を取得（体重設定済みの場合は個人目標）"""
+    if user_weight:
+        # 体重ベースの目標値（中央値を使用）
+        return {
+            'energy': user_weight * 32.5,  # 30-35の中央
+            'protein': user_weight * 1.05,  # 0.9-1.2の中央
+            'salt': 6.0,
+            'potassium': 2000.0,
+            'phosphorus': user_weight * 1.05 * 15  # たんぱく質 × 15
+        }
+    else:
+        # 一般的な目安値（60kg想定）
+        return {
+            'energy': 1950.0,  # 60kg × 32.5
+            'protein': 63.0,   # 60kg × 1.05
+            'salt': 6.0,
+            'potassium': 2000.0,
+            'phosphorus': 945.0  # 63 × 15
+        }
+
+def display_nutrition_progress(totals, targets):
+    """プログレスバー付きで累計を表示"""
+    # カスタムCSSでプログレスバーの色を制御
+    st.markdown("""
+    <style>
+    .nutrition-item {
+        margin-bottom: 15px;
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+    .nutrition-label {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    .progress-bar {
+        height: 20px;
+        background: #e9ecef;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    .progress-fill {
+        height: 100%;
+        border-radius: 10px;
+        transition: width 0.3s ease;
+    }
+    .progress-good { background: linear-gradient(90deg, #4CAF50, #8BC34A); }
+    .progress-warning { background: linear-gradient(90deg, #FF9800, #FFC107); }
+    .progress-danger { background: linear-gradient(90deg, #f44336, #E91E63); }
+    .status-text {
+        font-size: 0.9em;
+        margin-top: 3px;
+    }
+    .over-limit {
+        color: #C62828;
+        font-weight: bold;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # 各栄養素の表示設定
+    nutrients = [
+        ('energy', '🔥 エネルギー', 'kcal', totals['energy'], targets['energy']),
+        ('protein', '🥩 たんぱく質', 'g', totals['protein'], targets['protein']),
+        ('salt', '🧂 塩分', 'g', totals['salt'], targets['salt']),
+        ('potassium', '🍌 カリウム', 'mg', totals['potassium'], targets['potassium']),
+        ('phosphorus', '🦴 リン', 'mg', totals['phosphorus'], targets['phosphorus']),
+    ]
+    
+    for key, label, unit, current, target in nutrients:
+        percentage = min((current / target) * 100, 150) if target > 0 else 0
+        display_pct = min(percentage, 100)  # バーは100%まで
+        
+        # 色の決定
+        if percentage >= 100:
+            color_class = 'progress-danger'
+            status = '⚠️ 超過'
+        elif percentage >= 80:
+            color_class = 'progress-warning'
+            status = '注意'
+        else:
+            color_class = 'progress-good'
+            status = '良好'
+        
+        # 表示
+        over_class = 'over-limit' if percentage >= 100 else ''
+        st.markdown(f"""
+        <div class="nutrition-item">
+            <div class="nutrition-label">
+                <span>{label}</span>
+                <span class="{over_class}">{current:.1f} / {target:.0f} {unit} ({percentage:.0f}%)</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill {color_class}" style="width: {display_pct}%;"></div>
+            </div>
+            <div class="status-text {over_class}">{status}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # 食事回数
+    st.markdown(f"**📝 本日の記録: {totals['meal_count']}食**")
+
 def create_nutrition_chart(df, start_date=None, end_date=None):
     """栄養推移グラフを作成（全栄養素対応・3段構成）"""
     # japanize_matplotlibによりフォント設定は不要
@@ -621,6 +767,44 @@ else:
                 # URLパラメータに追加（これでURLが更新される）
                 st.query_params["nickname"] = new_nickname
                 st.rerun()
+
+# --- 今日の記録確認ボタン ---
+if st.session_state.nickname and gc:
+    if st.button("📊 今日の記録を確認", key="check_today", use_container_width=True):
+        st.session_state.show_today_summary = not st.session_state.get('show_today_summary', False)
+    
+    if st.session_state.get('show_today_summary', False):
+        with st.container():
+            st.markdown("### 📊 今日の累計栄養素")
+            
+            # 今日のデータを取得
+            with st.spinner("データを読み込み中..."):
+                today_records = get_today_records(gc, st.session_state.nickname)
+            
+            if today_records:
+                # 累計を計算
+                totals = calculate_daily_totals(today_records)
+                
+                # 目標値を取得（体重設定済みの場合は個人目標）
+                targets = get_nutrition_targets(st.session_state.get('user_weight', None))
+                
+                # 体重が設定されていない場合は案内を表示
+                if not st.session_state.get('user_weight'):
+                    st.info("💡 下の「体重換算で個人目安を計算」で体重を設定すると、より正確な目標値が表示されます。")
+                
+                # プログレスバー付きで表示
+                display_nutrition_progress(totals, targets)
+                
+                # 詳細な内訳を表示
+                with st.expander("📝 本日の食事詳細"):
+                    for i, record in enumerate(today_records, 1):
+                        meal_type = classify_meal_type(record.get('時刻', ''))
+                        st.markdown(f"**{i}. {record.get('料理名', '不明')}** ({meal_type})")
+                        st.caption(f"時刻: {record.get('時刻', '')} | E: {record.get('エネルギー(kcal)', 0)}kcal, P: {record.get('たんぱく質(g)', 0)}g, 塩: {record.get('塩分(g)', 0)}g")
+            else:
+                st.info("📭 今日の記録はまだありません。食事を撮影して記録しましょう！")
+            
+            st.markdown("---")
 
 # --- サイドバー: 管理者機能 ---
 with st.sidebar:
